@@ -182,12 +182,6 @@ exports.register = async (req, res) => {
     );
 
     const emailSent = await sendEmailOTP(email, otp);
-    if (!emailSent) {
-      return res.status(500).json({
-        success: false,
-        message: 'Registration successful but failed to send OTP email'
-      });
-    }
 
     res.status(201).json({
       success: true,
