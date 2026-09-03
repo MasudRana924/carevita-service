@@ -1,0 +1,350 @@
+const pool = require('../config/database');
+const { v4: uuidv4 } = require('uuid');
+
+const createBooking = async (bookingData) => {
+  const {
+    user_id, family_member_id, service_id, provider_type, provider_id,
+    hospital_id, scheduled_date, scheduled_end_date, pickup_location,
+    destination_location, patient_requirements, instructions, total_amount,
+    platform_fee, provider_amount, payment_method
+  } = bookingData;
+
+  const booking_number = `BK${Date.now()}${Math.floor(Math.random() * 1000)}`;
+
+  const query = `
+    INSERT INTO bookings (
+      booking_number, user_id, family_member_id, service_id, provider_type, provider_id,
+      hospital_id, scheduled_date, scheduled_end_date, pickup_location, destination_location,
+      patient_requirements, instructions, total_amount, platform_fee, provider_amount, payment_method
+    )
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+    RETURNING *
+  `;
+  const values = [
+    booking_number, user_id, family_member_id, service_id, provider_type, provider_id,
+    hospital_id, scheduled_date, scheduled_end_date, pickup_location, destination_location,
+    patient_requirements, instructions, total_amount, platform_fee, provider_amount, payment_method
+  ];
+
+  const result = await pool.query(query, values);
+  return result.rows[0];
+};
+
+const findById = async (id) => {
+  const query = `
+    SELECT b.*, 
+      u.name as customer_name, u.phone as customer_phone,
+      fm.name as family_member_name, fm.photo as family_member_photo,
+      s.name as service_name, s.category as service_category,
+      h.name as hospital_name, h.address as hospital_address
+    FROM bookings b
+    JOIN users u ON b.user_id = u.id
+    LEFT JOIN family_members fm ON b.family_member_id = fm.id
+    LEFT JOIN services s ON b.service_id = s.id
+    LEFT JOIN hospitals h ON b.hospital_id = h.id
+    WHERE b.id = $1
+  `;
+  const result = await pool.query(query, [id]);
+  return result.rows[0];
+};
+
+const findByBookingNumber = async (booking_number) => {
+  const query = `
+    SELECT b.*, 
+      u.name as customer_name, u.phone as customer_phone,
+      fm.name as family_member_name,
+      s.name as service_name, s.category as service_category,
+      h.name as hospital_name
+    FROM bookings b
+    JOIN users u ON b.user_id = u.id
+    LEFT JOIN family_members fm ON b.family_member_id = fm.id
+    LEFT JOIN services s ON b.service_id = s.id
+    LEFT JOIN hospitals h ON b.hospital_id = h.id
+    WHERE b.booking_number = $1
+  `;
+  const result = await pool.query(query, [booking_number]);
+  return result.rows[0];
+};
+
+const findByUserId = async (user_id, filters = {}) => {
+  let query = `
+    SELECT b.*, 
+      fm.name as family_member_name,
+      s.name as service_name, s.category as service_category,
+      h.name as hospital_name
+    FROM bookings b
+    LEFT JOIN family_members fm ON b.family_member_id = fm.id
+    LEFT JOIN services s ON b.service_id = s.id
+    LEFT JOIN hospitals h ON b.hospital_id = h.id
+    WHERE b.user_id = $1
+  `;
+  const values = [user_id];
+  let paramCount = 1;
+
+  if (filters.status) {
+    paramCount++;
+    query += ` AND b.status = $${paramCount}`;
+    values.push(filters.status);
+  }
+
+  if (filters.provider_type) {
+    paramCount++;
+    query += ` AND b.provider_type = $${paramCount}`;
+    values.push(filters.provider_type);
+  }
+
+  query += ' ORDER BY b.created_at DESC';
+
+  if (filters.limit) {
+    paramCount++;
+    query += ` LIMIT $${paramCount}`;
+    values.push(filters.limit);
+  }
+
+  if (filters.offset) {
+    paramCount++;
+    query += ` OFFSET $${paramCount}`;
+    values.push(filters.offset);
+  }
+
+  const result = await pool.query(query, values);
+  return result.rows;
+};
+
+const findByProviderId = async (provider_id, provider_type, filters = {}) => {
+  let query = `
+    SELECT b.*, 
+      u.name as customer_name, u.phone as customer_phone,
+      fm.name as family_member_name, fm.photo as family_member_photo,
+      s.name as service_name, s.category as service_category,
+      h.name as hospital_name, h.address as hospital_address
+    FROM bookings b
+    JOIN users u ON b.user_id = u.id
+    LEFT JOIN family_members fm ON b.family_member_id = fm.id
+    LEFT JOIN services s ON b.service_id = s.id
+    LEFT JOIN hospitals h ON b.hospital_id = h.id
+    WHERE b.provider_id = $1 AND b.provider_type = $2
+  `;
+  const values = [provider_id, provider_type];
+  let paramCount = 2;
+
+  if (filters.status) {
+    paramCount++;
+    query += ` AND b.status = $${paramCount}`;
+    values.push(filters.status);
+  }
+
+  query += ' ORDER BY b.scheduled_date ASC';
+
+  if (filters.limit) {
+    paramCount++;
+    query += ` LIMIT $${paramCount}`;
+    values.push(filters.limit);
+  }
+
+  const result = await pool.query(query, values);
+  return result.rows;
+};
+
+const findAll = async (filters = {}) => {
+  let query = `
+    SELECT b.*, 
+      u.name as customer_name, u.phone as customer_phone,
+      fm.name as family_member_name,
+      s.name as service_name, s.category as service_category,
+      h.name as hospital_name
+    FROM bookings b
+    JOIN users u ON b.user_id = u.id
+    LEFT JOIN family_members fm ON b.family_member_id = fm.id
+    LEFT JOIN services s ON b.service_id = s.id
+    LEFT JOIN hospitals h ON b.hospital_id = h.id
+    WHERE 1=1
+  `;
+  const values = [];
+  let paramCount = 0;
+
+  if (filters.status) {
+    paramCount++;
+    query += ` AND b.status = $${paramCount}`;
+    values.push(filters.status);
+  }
+
+  if (filters.provider_type) {
+    paramCount++;
+    query += ` AND b.provider_type = $${paramCount}`;
+    values.push(filters.provider_type);
+  }
+
+  if (filters.date_from) {
+    paramCount++;
+    query += ` AND b.scheduled_date >= $${paramCount}`;
+    values.push(filters.date_from);
+  }
+
+  if (filters.date_to) {
+    paramCount++;
+    query += ` AND b.scheduled_date <= $${paramCount}`;
+    values.push(filters.date_to);
+  }
+
+  query += ' ORDER BY b.created_at DESC';
+
+  if (filters.limit) {
+    paramCount++;
+    query += ` LIMIT $${paramCount}`;
+    values.push(filters.limit);
+  }
+
+  if (filters.offset) {
+    paramCount++;
+    query += ` OFFSET $${paramCount}`;
+    values.push(filters.offset);
+  }
+
+  const result = await pool.query(query, values);
+  return result.rows;
+};
+
+const updateBooking = async (id, bookingData) => {
+  const {
+    provider_id, scheduled_date, scheduled_end_date, pickup_location,
+    destination_location, patient_requirements, instructions, total_amount,
+    platform_fee, provider_amount
+  } = bookingData;
+
+  const query = `
+    UPDATE bookings 
+    SET provider_id = $1, scheduled_date = $2, scheduled_end_date = $3,
+        pickup_location = $4, destination_location = $5, patient_requirements = $6,
+        instructions = $7, total_amount = $8, platform_fee = $9, provider_amount = $10,
+        updated_at = CURRENT_TIMESTAMP
+    WHERE id = $11
+    RETURNING *
+  `;
+  const values = [
+    provider_id, scheduled_date, scheduled_end_date, pickup_location,
+    destination_location, patient_requirements, instructions, total_amount,
+    platform_fee, provider_amount, id
+  ];
+
+  const result = await pool.query(query, values);
+  return result.rows[0];
+};
+
+const updateStatus = async (id, status) => {
+  const query = `
+    UPDATE bookings 
+    SET status = $1, updated_at = CURRENT_TIMESTAMP
+    WHERE id = $2
+    RETURNING *
+  `;
+  const result = await pool.query(query, [status, id]);
+  return result.rows[0];
+};
+
+const updatePaymentStatus = async (id, payment_status) => {
+  const query = `
+    UPDATE bookings 
+    SET payment_status = $1, updated_at = CURRENT_TIMESTAMP
+    WHERE id = $2
+    RETURNING *
+  `;
+  const result = await pool.query(query, [payment_status, id]);
+  return result.rows[0];
+};
+
+const cancel = async (id, cancellation_reason, cancelled_by) => {
+  const query = `
+    UPDATE bookings 
+    SET status = 'cancelled', cancellation_reason = $1, cancelled_by = $2,
+        cancelled_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+    WHERE id = $3
+    RETURNING *
+  `;
+  const result = await pool.query(query, [cancellation_reason, cancelled_by, id]);
+  return result.rows[0];
+};
+
+const complete = async (id) => {
+  const query = `
+    UPDATE bookings 
+    SET status = 'completed', completed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+    WHERE id = $1
+    RETURNING *
+  `;
+  const result = await pool.query(query, [id]);
+  return result.rows[0];
+};
+
+const addStatusTimeline = async (booking_id, status, notes, location_lat, location_long) => {
+  const query = `
+    INSERT INTO booking_status_timeline (booking_id, status, notes, location_lat, location_long)
+    VALUES ($1, $2, $3, $4, $5)
+    RETURNING *
+  `;
+  const values = [booking_id, status, notes, location_lat, location_long];
+  const result = await pool.query(query, values);
+  return result.rows[0];
+};
+
+const getStatusTimeline = async (booking_id) => {
+  const query = `
+    SELECT * FROM booking_status_timeline 
+    WHERE booking_id = $1 
+    ORDER BY created_at ASC
+  `;
+  const result = await pool.query(query, [booking_id]);
+  return result.rows;
+};
+
+const getActiveBookings = async () => {
+  const query = `
+    SELECT b.*, 
+      u.name as customer_name, u.phone as customer_phone,
+      fm.name as family_member_name,
+      h.name as hospital_name
+    FROM bookings b
+    JOIN users u ON b.user_id = u.id
+    LEFT JOIN family_members fm ON b.family_member_id = fm.id
+    LEFT JOIN hospitals h ON b.hospital_id = h.id
+    WHERE b.status IN ('confirmed', 'in_progress', 'provider_assigned', 'helper_on_way')
+    ORDER BY b.scheduled_date ASC
+  `;
+  const result = await pool.query(query);
+  return result.rows;
+};
+
+const getTodayBookings = async () => {
+  const query = `
+    SELECT b.*, 
+      u.name as customer_name, u.phone as customer_phone,
+      fm.name as family_member_name,
+      h.name as hospital_name
+    FROM bookings b
+    JOIN users u ON b.user_id = u.id
+    LEFT JOIN family_members fm ON b.family_member_id = fm.id
+    LEFT JOIN hospitals h ON b.hospital_id = h.id
+    WHERE DATE(b.scheduled_date) = CURRENT_DATE
+    ORDER BY b.scheduled_date ASC
+  `;
+  const result = await pool.query(query);
+  return result.rows;
+};
+
+module.exports = {
+  createBooking,
+  findById,
+  findByBookingNumber,
+  findByUserId,
+  findByProviderId,
+  findAll,
+  updateBooking,
+  updateStatus,
+  updatePaymentStatus,
+  cancel,
+  complete,
+  addStatusTimeline,
+  getStatusTimeline,
+  getActiveBookings,
+  getTodayBookings
+};
