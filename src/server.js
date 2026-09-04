@@ -4,6 +4,7 @@ const cors = require('cors');
 const helmet = require('helmet');
 const { apiLimiter } = require('./middleware/rateLimiter');
 const errorHandler = require('./middleware/errorHandler');
+const responseHandler = require('./middleware/responseHandler');
 const routes = require('./routes');
 const pool = require('./config/database');
 
@@ -23,11 +24,14 @@ app.use(cors({
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
+// Response handler middleware
+app.use(responseHandler);
+
 // Rate limiting
 app.use('/api/', apiLimiter);
 
 // API routes
-app.use('/api', routes);
+app.use('/api/v1', routes);
 
 // Health check endpoint
 app.get('/', (req, res) => {

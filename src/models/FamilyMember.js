@@ -2,24 +2,24 @@ const pool = require('../config/database');
 
 const createFamilyMember = async (memberData) => {
   const {
-    user_id, name, photo, age, gender, relationship, blood_group,
-    address, emergency_contact, medical_history, existing_conditions,
-    allergies, current_medications, preferred_hospital, preferred_doctor
+    user_id, name, photo, date_of_birth, gender, relationship, blood_group,
+    address_id, emergency_contact_name, emergency_contact_phone, medical_history,
+    existing_conditions, allergies, current_medications
   } = memberData;
 
   const query = `
     INSERT INTO family_members (
-      user_id, name, photo, age, gender, relationship, blood_group,
-      address, emergency_contact, medical_history, existing_conditions,
-      allergies, current_medications, preferred_hospital, preferred_doctor
+      user_id, name, photo, date_of_birth, gender, relationship, blood_group,
+      address_id, emergency_contact_name, emergency_contact_phone, medical_history,
+      existing_conditions, allergies, current_medications
     )
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
     RETURNING *
   `;
   const values = [
-    user_id, name, photo, age, gender, relationship, blood_group,
-    address, emergency_contact, medical_history, existing_conditions,
-    allergies, current_medications, preferred_hospital, preferred_doctor
+    user_id, name, photo, date_of_birth, gender, relationship, blood_group,
+    address_id, emergency_contact_name, emergency_contact_phone, medical_history,
+    existing_conditions, allergies, current_medications
   ];
 
   const result = await pool.query(query, values);
@@ -40,24 +40,34 @@ const findByUserId = async (user_id) => {
 
 const updateFamilyMember = async (id, memberData) => {
   const {
-    name, photo, age, gender, relationship, blood_group,
-    address, emergency_contact, medical_history, existing_conditions,
-    allergies, current_medications, preferred_hospital, preferred_doctor
+    name, photo, date_of_birth, gender, relationship, blood_group,
+    address_id, emergency_contact_name, emergency_contact_phone, medical_history,
+    existing_conditions, allergies, current_medications
   } = memberData;
 
   const query = `
     UPDATE family_members 
-    SET name = $1, photo = $2, age = $3, gender = $4, relationship = $5, blood_group = $6,
-        address = $7, emergency_contact = $8, medical_history = $9, existing_conditions = $10,
-        allergies = $11, current_medications = $12, preferred_hospital = $13, 
-        preferred_doctor = $14, updated_at = CURRENT_TIMESTAMP
-    WHERE id = $15
+    SET name = COALESCE($1, name),
+        photo = COALESCE($2, photo),
+        date_of_birth = COALESCE($3, date_of_birth),
+        gender = COALESCE($4, gender),
+        relationship = COALESCE($5, relationship),
+        blood_group = COALESCE($6, blood_group),
+        address_id = COALESCE($7, address_id),
+        emergency_contact_name = COALESCE($8, emergency_contact_name),
+        emergency_contact_phone = COALESCE($9, emergency_contact_phone),
+        medical_history = COALESCE($10, medical_history),
+        existing_conditions = COALESCE($11, existing_conditions),
+        allergies = COALESCE($12, allergies),
+        current_medications = COALESCE($13, current_medications),
+        updated_at = CURRENT_TIMESTAMP
+    WHERE id = $14
     RETURNING *
   `;
   const values = [
-    name, photo, age, gender, relationship, blood_group,
-    address, emergency_contact, medical_history, existing_conditions,
-    allergies, current_medications, preferred_hospital, preferred_doctor, id
+    name, photo, date_of_birth, gender, relationship, blood_group,
+    address_id, emergency_contact_name, emergency_contact_phone, medical_history,
+    existing_conditions, allergies, current_medications, id
   ];
 
   const result = await pool.query(query, values);

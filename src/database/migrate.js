@@ -1,5 +1,70 @@
 const pool = require('../config/database');
 
+const dropTables = async () => {
+  const client = await pool.connect();
+  
+  try {
+    await client.query('BEGIN');
+    
+    // Drop tables in reverse order of dependencies
+    const tables = [
+      'audit_logs',
+      'care_manager_assignments',
+      'care_managers',
+      'corporate_employees',
+      'corporate_accounts',
+      'subscriptions',
+      'support_tickets',
+      'notifications',
+      'emergencies',
+      'medications',
+      'medical_records',
+      'ambulance_bookings',
+      'diagnostic_bookings',
+      'diagnostic_centers',
+      'diagnostic_tests',
+      'medicine_orders',
+      'medicines',
+      'prescriptions',
+      'appointments',
+      'reviews',
+      'wallet_transactions',
+      'provider_wallets',
+      'customer_wallets',
+      'refunds',
+      'payment_transactions',
+      'payments',
+      'availability_slots',
+      'booking_status_history',
+      'bookings',
+      'services',
+      'nurse_profiles',
+      'caregiver_profiles',
+      'provider_documents',
+      'doctors',
+      'hospitals',
+      'addresses',
+      'family_members',
+      'otp_verifications',
+      'users'
+    ];
+    
+    for (const table of tables) {
+      await client.query(`DROP TABLE IF EXISTS ${table} CASCADE`);
+      console.log(`Dropped table: ${table}`);
+    }
+    
+    await client.query('COMMIT');
+    console.log('All tables dropped successfully');
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Error dropping tables:', error);
+    throw error;
+  } finally {
+    client.release();
+  }
+};
+
 const createTables = async () => {
   const client = await pool.connect();
 
@@ -15,12 +80,11 @@ const createTables = async () => {
         password VARCHAR(255),
         name VARCHAR(255) NOT NULL,
         profile_photo TEXT,
-        role VARCHAR(50) NOT NULL DEFAULT 'customer',
+        role VARCHAR(50) NOT NULL DEFAULT 'USER' CHECK (role IN ('USER', 'CAREGIVER', 'NURSE', 'ADMIN')),
         status VARCHAR(50) DEFAULT 'active',
         is_verified BOOLEAN DEFAULT false,
         language_preference VARCHAR(10) DEFAULT 'en',
         emergency_contact VARCHAR(20),
-        address TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
@@ -40,6 +104,21 @@ const createTables = async () => {
       );
     `);
 
+    // Addresses table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS addresses (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        address_line VARCHAR(255),
+        city VARCHAR(100),
+        district VARCHAR(100),
+        division VARCHAR(100),
+        latitude DECIMAL(10, 8),
+        longitude DECIMAL(11, 8),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
     // Family Members table
     await client.query(`
       CREATE TABLE IF NOT EXISTS family_members (
@@ -47,18 +126,17 @@ const createTables = async () => {
         user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
         name VARCHAR(255) NOT NULL,
         photo TEXT,
-        age INTEGER,
+        date_of_birth DATE,
         gender VARCHAR(20),
         relationship VARCHAR(100),
         blood_group VARCHAR(10),
-        address TEXT,
-        emergency_contact VARCHAR(20),
+        address_id UUID REFERENCES addresses(id),
+        emergency_contact_name VARCHAR(255),
+        emergency_contact_phone VARCHAR(20),
         medical_history TEXT,
         existing_conditions TEXT,
         allergies TEXT,
         current_medications TEXT,
-        preferred_hospital TEXT,
-        preferred_doctor TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
@@ -69,7 +147,7 @@ const createTables = async () => {
       CREATE TABLE IF NOT EXISTS hospitals (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         name VARCHAR(255) NOT NULL,
-        address TEXT NOT NULL,
+        address_id UUID REFERENCES addresses(id),
         phone VARCHAR(20),
         email VARCHAR(255),
         location_lat DECIMAL(10, 8),
@@ -85,57 +163,62 @@ const createTables = async () => {
       );
     `);
 
-    // Helping Hands table
+    // Provider Documents table
     await client.query(`
-      CREATE TABLE IF NOT EXISTS helping_hands (
+      CREATE TABLE IF NOT EXISTS provider_documents (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-        name VARCHAR(255) NOT NULL,
-        photo TEXT,
-        nid_number VARCHAR(20),
-        nid_verified BOOLEAN DEFAULT false,
-        identity_verified BOOLEAN DEFAULT false,
-        background_verified BOOLEAN DEFAULT false,
-        training_status VARCHAR(50) DEFAULT 'pending',
-        experience INTEGER DEFAULT 0,
-        languages TEXT,
-        skills TEXT,
-        rating DECIMAL(3, 2) DEFAULT 0,
-        completed_jobs INTEGER DEFAULT 0,
-        response_rate DECIMAL(5, 2) DEFAULT 0,
-        cancellation_rate DECIMAL(5, 2) DEFAULT 0,
-        is_available BOOLEAN DEFAULT true,
-        location_lat DECIMAL(10, 8),
-        location_long DECIMAL(11, 8),
-        service_areas TEXT,
+        provider_id UUID NOT NULL,
+        provider_type VARCHAR(50) NOT NULL CHECK (provider_type IN ('CAREGIVER', 'NURSE')),
+        document_type VARCHAR(50) NOT NULL,
+        document_url TEXT NOT NULL,
+        verification_status VARCHAR(50) DEFAULT 'PENDING' CHECK (verification_status IN ('PENDING', 'APPROVED', 'REJECTED')),
+        verification_note TEXT,
+        submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        verified_at TIMESTAMP,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
     `);
 
-    // Nurses table
+    // Caregiver Profiles table
     await client.query(`
-      CREATE TABLE IF NOT EXISTS nurses (
+      CREATE TABLE IF NOT EXISTS caregiver_profiles (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-        name VARCHAR(255) NOT NULL,
-        photo TEXT,
-        nid_number VARCHAR(20),
-        nid_verified BOOLEAN DEFAULT false,
-        identity_verified BOOLEAN DEFAULT false,
-        background_verified BOOLEAN DEFAULT false,
-        credentials TEXT,
-        training_status VARCHAR(50) DEFAULT 'pending',
-        experience INTEGER DEFAULT 0,
-        specializations TEXT,
-        languages TEXT,
-        skills TEXT,
+        bio TEXT,
+        experience_years INTEGER DEFAULT 0,
+        service_areas TEXT[],
+        hourly_rate DECIMAL(10, 2),
+        verification_status VARCHAR(50) DEFAULT 'PENDING' CHECK (verification_status IN ('PENDING', 'UNDER_REVIEW', 'APPROVED', 'REJECTED', 'SUSPENDED')),
+        verification_note TEXT,
         rating DECIMAL(3, 2) DEFAULT 0,
-        completed_services INTEGER DEFAULT 0,
+        completed_bookings INTEGER DEFAULT 0,
+        response_rate DECIMAL(5, 2) DEFAULT 0,
+        cancellation_rate DECIMAL(5, 2) DEFAULT 0,
         is_available BOOLEAN DEFAULT true,
-        location_lat DECIMAL(10, 8),
-        location_long DECIMAL(11, 8),
-        service_areas TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    // Nurse Profiles table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS nurse_profiles (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        qualification VARCHAR(255),
+        specialization VARCHAR(255),
+        license_number VARCHAR(100),
+        experience_years INTEGER DEFAULT 0,
+        service_areas TEXT[],
+        hourly_rate DECIMAL(10, 2),
+        verification_status VARCHAR(50) DEFAULT 'PENDING' CHECK (verification_status IN ('PENDING', 'UNDER_REVIEW', 'APPROVED', 'REJECTED', 'SUSPENDED')),
+        verification_note TEXT,
+        rating DECIMAL(3, 2) DEFAULT 0,
+        completed_bookings INTEGER DEFAULT 0,
+        response_rate DECIMAL(5, 2) DEFAULT 0,
+        cancellation_rate DECIMAL(5, 2) DEFAULT 0,
+        is_available BOOLEAN DEFAULT true,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
@@ -186,21 +269,26 @@ const createTables = async () => {
         booking_number VARCHAR(50) UNIQUE NOT NULL,
         user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
         family_member_id UUID REFERENCES family_members(id) ON DELETE SET NULL,
-        service_id UUID REFERENCES services(id),
-        provider_type VARCHAR(50),
+        service_type VARCHAR(50) NOT NULL CHECK (service_type IN ('HOSPITAL_ASSISTANCE', 'NURSING')),
+        provider_type VARCHAR(50) CHECK (provider_type IN ('CAREGIVER', 'NURSE')),
         provider_id UUID,
         hospital_id UUID REFERENCES hospitals(id),
-        scheduled_date TIMESTAMP NOT NULL,
-        scheduled_end_date TIMESTAMP,
-        pickup_location TEXT,
-        destination_location TEXT,
-        patient_requirements TEXT,
-        instructions TEXT,
-        status VARCHAR(50) DEFAULT 'pending',
-        total_amount DECIMAL(10, 2),
+        booking_date DATE NOT NULL,
+        start_time TIME NOT NULL,
+        end_time TIME,
+        duration_hours INTEGER,
+        pickup_address_id UUID REFERENCES addresses(id),
+        destination_address_id UUID REFERENCES addresses(id),
+        notes TEXT,
+        service_charge DECIMAL(10, 2),
         platform_fee DECIMAL(10, 2),
-        provider_amount DECIMAL(10, 2),
-        payment_status VARCHAR(50) DEFAULT 'pending',
+        discount DECIMAL(10, 2) DEFAULT 0,
+        total_amount DECIMAL(10, 2),
+        advance_percentage INTEGER DEFAULT 50,
+        advance_amount DECIMAL(10, 2),
+        remaining_amount DECIMAL(10, 2),
+        status VARCHAR(50) DEFAULT 'PENDING_PAYMENT' CHECK (status IN ('PENDING_PAYMENT', 'PAYMENT_PROCESSING', 'PAYMENT_PAID', 'SEARCHING_PROVIDER', 'PROVIDER_ASSIGNED', 'PROVIDER_ACCEPTED', 'PROVIDER_ON_THE_WAY', 'PATIENT_PICKED_UP', 'SERVICE_STARTED', 'SERVICE_IN_PROGRESS', 'SERVICE_COMPLETED', 'CANCELLED_BY_USER', 'CANCELLED_BY_PROVIDER', 'CANCELLED_BY_ADMIN', 'REFUND_PENDING', 'REFUNDED', 'DISPUTED')),
+        payment_status VARCHAR(50) DEFAULT 'PENDING',
         payment_method VARCHAR(50),
         cancellation_reason TEXT,
         cancelled_by UUID REFERENCES users(id),
@@ -211,12 +299,14 @@ const createTables = async () => {
       );
     `);
 
-    // Booking Status Timeline table
+    // Booking Status History table
     await client.query(`
-      CREATE TABLE IF NOT EXISTS booking_status_timeline (
+      CREATE TABLE IF NOT EXISTS booking_status_history (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         booking_id UUID NOT NULL REFERENCES bookings(id) ON DELETE CASCADE,
-        status VARCHAR(50) NOT NULL,
+        from_status VARCHAR(50),
+        to_status VARCHAR(50) NOT NULL,
+        changed_by UUID REFERENCES users(id),
         notes TEXT,
         location_lat DECIMAL(10, 8),
         location_long DECIMAL(11, 8),
@@ -224,17 +314,18 @@ const createTables = async () => {
       );
     `);
 
-    // Availability table
+    // Availability Slots table
     await client.query(`
-      CREATE TABLE IF NOT EXISTS availability (
+      CREATE TABLE IF NOT EXISTS availability_slots (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         provider_id UUID NOT NULL,
-        provider_type VARCHAR(50) NOT NULL,
+        provider_type VARCHAR(50) NOT NULL CHECK (provider_type IN ('CAREGIVER', 'NURSE')),
         date DATE NOT NULL,
         start_time TIME NOT NULL,
         end_time TIME NOT NULL,
         is_available BOOLEAN DEFAULT true,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
     `);
 
@@ -244,15 +335,45 @@ const createTables = async () => {
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         booking_id UUID REFERENCES bookings(id) ON DELETE SET NULL,
         user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        payment_type VARCHAR(50) NOT NULL CHECK (payment_type IN ('ADVANCE', 'REMAINING', 'FULL')),
         amount DECIMAL(10, 2) NOT NULL,
         payment_method VARCHAR(50) NOT NULL,
         transaction_id VARCHAR(255),
-        status VARCHAR(50) DEFAULT 'pending',
+        status VARCHAR(50) DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'PROCESSING', 'PAID', 'FAILED', 'REFUNDED')),
         payment_gateway VARCHAR(50),
         gateway_response TEXT,
-        refunded_amount DECIMAL(10, 2) DEFAULT 0,
-        refund_reason TEXT,
-        refunded_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    // Payment Transactions table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS payment_transactions (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        payment_id UUID NOT NULL REFERENCES payments(id) ON DELETE CASCADE,
+        transaction_type VARCHAR(50) NOT NULL,
+        gateway_transaction_id VARCHAR(255),
+        amount DECIMAL(10, 2) NOT NULL,
+        currency VARCHAR(10) DEFAULT 'BDT',
+        status VARCHAR(50) NOT NULL,
+        gateway_response JSONB,
+        metadata JSONB,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    // Refunds table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS refunds (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        payment_id UUID NOT NULL REFERENCES payments(id) ON DELETE CASCADE,
+        amount DECIMAL(10, 2) NOT NULL,
+        reason TEXT,
+        status VARCHAR(50) DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'PROCESSING', 'COMPLETED', 'FAILED')),
+        refund_transaction_id VARCHAR(255),
+        processed_by UUID REFERENCES users(id),
+        processed_at TIMESTAMP,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
@@ -683,6 +804,22 @@ const createTables = async () => {
       );
     `);
 
+    // Audit Logs table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS audit_logs (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id UUID REFERENCES users(id),
+        action VARCHAR(100) NOT NULL,
+        entity_type VARCHAR(50) NOT NULL,
+        entity_id UUID,
+        old_values JSONB,
+        new_values JSONB,
+        ip_address VARCHAR(45),
+        user_agent TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
     // Create indexes for better performance
     await client.query('CREATE INDEX IF NOT EXISTS idx_users_phone ON users(phone);');
     await client.query('CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);');
@@ -690,7 +827,8 @@ const createTables = async () => {
     await client.query('CREATE INDEX IF NOT EXISTS idx_family_members_user_id ON family_members(user_id);');
     await client.query('CREATE INDEX IF NOT EXISTS idx_bookings_user_id ON bookings(user_id);');
     await client.query('CREATE INDEX IF NOT EXISTS idx_bookings_status ON bookings(status);');
-    await client.query('CREATE INDEX IF NOT EXISTS idx_bookings_scheduled_date ON bookings(scheduled_date);');
+    await client.query('CREATE INDEX IF NOT EXISTS idx_bookings_booking_date ON bookings(booking_date);');
+    await client.query('CREATE INDEX IF NOT EXISTS idx_bookings_provider_id ON bookings(provider_id);');
     await client.query('CREATE INDEX IF NOT EXISTS idx_appointments_user_id ON appointments(user_id);');
     await client.query('CREATE INDEX IF NOT EXISTS idx_appointments_doctor_id ON appointments(doctor_id);');
     await client.query('CREATE INDEX IF NOT EXISTS idx_appointments_scheduled_date ON appointments(scheduled_date);');
@@ -698,6 +836,16 @@ const createTables = async () => {
     await client.query('CREATE INDEX IF NOT EXISTS idx_notifications_user_id ON notifications(user_id);');
     await client.query('CREATE INDEX IF NOT EXISTS idx_notifications_is_read ON notifications(is_read);');
     await client.query('CREATE INDEX IF NOT EXISTS idx_otp_verifications_phone ON otp_verifications(phone);');
+    await client.query('CREATE INDEX IF NOT EXISTS idx_otp_verifications_email ON otp_verifications(email);');
+    await client.query('CREATE INDEX IF NOT EXISTS idx_caregiver_profiles_user_id ON caregiver_profiles(user_id);');
+    await client.query('CREATE INDEX IF NOT EXISTS idx_nurse_profiles_user_id ON nurse_profiles(user_id);');
+    await client.query('CREATE INDEX IF NOT EXISTS idx_availability_slots_provider_id ON availability_slots(provider_id);');
+    await client.query('CREATE INDEX IF NOT EXISTS idx_booking_status_history_booking_id ON booking_status_history(booking_id);');
+    await client.query('CREATE INDEX IF NOT EXISTS idx_payment_transactions_payment_id ON payment_transactions(payment_id);');
+    await client.query('CREATE INDEX IF NOT EXISTS idx_refunds_payment_id ON refunds(payment_id);');
+    await client.query('CREATE INDEX IF NOT EXISTS idx_audit_logs_user_id ON audit_logs(user_id);');
+    await client.query('CREATE INDEX IF NOT EXISTS idx_audit_logs_entity ON audit_logs(entity_type, entity_id);');
+    await client.query('CREATE INDEX IF NOT EXISTS idx_provider_documents_provider_id ON provider_documents(provider_id);');
 
     await client.query('COMMIT');
     console.log('All tables created successfully');
@@ -710,7 +858,8 @@ const createTables = async () => {
   }
 };
 
-createTables()
+dropTables()
+  .then(() => createTables())
   .then(() => {
     console.log('Migration completed successfully');
     process.exit(0);

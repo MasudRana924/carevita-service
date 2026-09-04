@@ -3,27 +3,32 @@ const { v4: uuidv4 } = require('uuid');
 
 const createBooking = async (bookingData) => {
   const {
-    user_id, family_member_id, service_id, provider_type, provider_id,
-    hospital_id, scheduled_date, scheduled_end_date, pickup_location,
-    destination_location, patient_requirements, instructions, total_amount,
-    platform_fee, provider_amount, payment_method
+    user_id, family_member_id, service_type, provider_type, provider_id,
+    hospital_id, booking_date, start_time, end_time, duration_hours,
+    pickup_address_id, destination_address_id, notes, service_charge,
+    platform_fee, discount, total_amount, advance_percentage,
+    advance_amount, remaining_amount
   } = bookingData;
 
   const booking_number = `BK${Date.now()}${Math.floor(Math.random() * 1000)}`;
 
   const query = `
     INSERT INTO bookings (
-      booking_number, user_id, family_member_id, service_id, provider_type, provider_id,
-      hospital_id, scheduled_date, scheduled_end_date, pickup_location, destination_location,
-      patient_requirements, instructions, total_amount, platform_fee, provider_amount, payment_method
+      booking_number, user_id, family_member_id, service_type, provider_type, provider_id,
+      hospital_id, booking_date, start_time, end_time, duration_hours,
+      pickup_address_id, destination_address_id, notes, service_charge,
+      platform_fee, discount, total_amount, advance_percentage,
+      advance_amount, remaining_amount, status
     )
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, 'PENDING_PAYMENT')
     RETURNING *
   `;
   const values = [
-    booking_number, user_id, family_member_id, service_id, provider_type, provider_id,
-    hospital_id, scheduled_date, scheduled_end_date, pickup_location, destination_location,
-    patient_requirements, instructions, total_amount, platform_fee, provider_amount, payment_method
+    booking_number, user_id, family_member_id, service_type, provider_type, provider_id,
+    hospital_id, booking_date, start_time, end_time, duration_hours,
+    pickup_address_id, destination_address_id, notes, service_charge,
+    platform_fee, discount, total_amount, advance_percentage,
+    advance_amount, remaining_amount
   ];
 
   const result = await pool.query(query, values);
@@ -35,12 +40,10 @@ const findById = async (id) => {
     SELECT b.*, 
       u.name as customer_name, u.phone as customer_phone,
       fm.name as family_member_name, fm.photo as family_member_photo,
-      s.name as service_name, s.category as service_category,
-      h.name as hospital_name, h.address as hospital_address
+      h.name as hospital_name
     FROM bookings b
     JOIN users u ON b.user_id = u.id
     LEFT JOIN family_members fm ON b.family_member_id = fm.id
-    LEFT JOIN services s ON b.service_id = s.id
     LEFT JOIN hospitals h ON b.hospital_id = h.id
     WHERE b.id = $1
   `;
@@ -53,12 +56,10 @@ const findByBookingNumber = async (booking_number) => {
     SELECT b.*, 
       u.name as customer_name, u.phone as customer_phone,
       fm.name as family_member_name,
-      s.name as service_name, s.category as service_category,
       h.name as hospital_name
     FROM bookings b
     JOIN users u ON b.user_id = u.id
     LEFT JOIN family_members fm ON b.family_member_id = fm.id
-    LEFT JOIN services s ON b.service_id = s.id
     LEFT JOIN hospitals h ON b.hospital_id = h.id
     WHERE b.booking_number = $1
   `;
@@ -70,11 +71,9 @@ const findByUserId = async (user_id, filters = {}) => {
   let query = `
     SELECT b.*, 
       fm.name as family_member_name,
-      s.name as service_name, s.category as service_category,
       h.name as hospital_name
     FROM bookings b
     LEFT JOIN family_members fm ON b.family_member_id = fm.id
-    LEFT JOIN services s ON b.service_id = s.id
     LEFT JOIN hospitals h ON b.hospital_id = h.id
     WHERE b.user_id = $1
   `;
@@ -116,12 +115,10 @@ const findByProviderId = async (provider_id, provider_type, filters = {}) => {
     SELECT b.*, 
       u.name as customer_name, u.phone as customer_phone,
       fm.name as family_member_name, fm.photo as family_member_photo,
-      s.name as service_name, s.category as service_category,
       h.name as hospital_name, h.address as hospital_address
     FROM bookings b
     JOIN users u ON b.user_id = u.id
     LEFT JOIN family_members fm ON b.family_member_id = fm.id
-    LEFT JOIN services s ON b.service_id = s.id
     LEFT JOIN hospitals h ON b.hospital_id = h.id
     WHERE b.provider_id = $1 AND b.provider_type = $2
   `;
@@ -134,7 +131,7 @@ const findByProviderId = async (provider_id, provider_type, filters = {}) => {
     values.push(filters.status);
   }
 
-  query += ' ORDER BY b.scheduled_date ASC';
+  query += ' ORDER BY b.booking_date ASC';
 
   if (filters.limit) {
     paramCount++;
@@ -151,12 +148,10 @@ const findAll = async (filters = {}) => {
     SELECT b.*, 
       u.name as customer_name, u.phone as customer_phone,
       fm.name as family_member_name,
-      s.name as service_name, s.category as service_category,
       h.name as hospital_name
     FROM bookings b
     JOIN users u ON b.user_id = u.id
     LEFT JOIN family_members fm ON b.family_member_id = fm.id
-    LEFT JOIN services s ON b.service_id = s.id
     LEFT JOIN hospitals h ON b.hospital_id = h.id
     WHERE 1=1
   `;
@@ -177,13 +172,13 @@ const findAll = async (filters = {}) => {
 
   if (filters.date_from) {
     paramCount++;
-    query += ` AND b.scheduled_date >= $${paramCount}`;
+    query += ` AND b.booking_date >= $${paramCount}`;
     values.push(filters.date_from);
   }
 
   if (filters.date_to) {
     paramCount++;
-    query += ` AND b.scheduled_date <= $${paramCount}`;
+    query += ` AND b.booking_date <= $${paramCount}`;
     values.push(filters.date_to);
   }
 
@@ -207,24 +202,38 @@ const findAll = async (filters = {}) => {
 
 const updateBooking = async (id, bookingData) => {
   const {
-    provider_id, scheduled_date, scheduled_end_date, pickup_location,
-    destination_location, patient_requirements, instructions, total_amount,
-    platform_fee, provider_amount
+    provider_id, booking_date, start_time, end_time, duration_hours,
+    pickup_address_id, destination_address_id, notes, service_charge,
+    platform_fee, discount, total_amount, advance_percentage,
+    advance_amount, remaining_amount
   } = bookingData;
 
   const query = `
     UPDATE bookings 
-    SET provider_id = $1, scheduled_date = $2, scheduled_end_date = $3,
-        pickup_location = $4, destination_location = $5, patient_requirements = $6,
-        instructions = $7, total_amount = $8, platform_fee = $9, provider_amount = $10,
+    SET provider_id = COALESCE($1, provider_id),
+        booking_date = COALESCE($2, booking_date),
+        start_time = COALESCE($3, start_time),
+        end_time = COALESCE($4, end_time),
+        duration_hours = COALESCE($5, duration_hours),
+        pickup_address_id = COALESCE($6, pickup_address_id),
+        destination_address_id = COALESCE($7, destination_address_id),
+        notes = COALESCE($8, notes),
+        service_charge = COALESCE($9, service_charge),
+        platform_fee = COALESCE($10, platform_fee),
+        discount = COALESCE($11, discount),
+        total_amount = COALESCE($12, total_amount),
+        advance_percentage = COALESCE($13, advance_percentage),
+        advance_amount = COALESCE($14, advance_amount),
+        remaining_amount = COALESCE($15, remaining_amount),
         updated_at = CURRENT_TIMESTAMP
-    WHERE id = $11
+    WHERE id = $16
     RETURNING *
   `;
   const values = [
-    provider_id, scheduled_date, scheduled_end_date, pickup_location,
-    destination_location, patient_requirements, instructions, total_amount,
-    platform_fee, provider_amount, id
+    provider_id, booking_date, start_time, end_time, duration_hours,
+    pickup_address_id, destination_address_id, notes, service_charge,
+    platform_fee, discount, total_amount, advance_percentage,
+    advance_amount, remaining_amount, id
   ];
 
   const result = await pool.query(query, values);
@@ -276,20 +285,20 @@ const complete = async (id) => {
   return result.rows[0];
 };
 
-const addStatusTimeline = async (booking_id, status, notes, location_lat, location_long) => {
+const addStatusHistory = async (booking_id, from_status, to_status, changed_by, notes, location_lat, location_long) => {
   const query = `
-    INSERT INTO booking_status_timeline (booking_id, status, notes, location_lat, location_long)
-    VALUES ($1, $2, $3, $4, $5)
+    INSERT INTO booking_status_history (booking_id, from_status, to_status, changed_by, notes, location_lat, location_long)
+    VALUES ($1, $2, $3, $4, $5, $6, $7)
     RETURNING *
   `;
-  const values = [booking_id, status, notes, location_lat, location_long];
+  const values = [booking_id, from_status, to_status, changed_by, notes, location_lat, location_long];
   const result = await pool.query(query, values);
   return result.rows[0];
 };
 
-const getStatusTimeline = async (booking_id) => {
+const getStatusHistory = async (booking_id) => {
   const query = `
-    SELECT * FROM booking_status_timeline 
+    SELECT * FROM booking_status_history 
     WHERE booking_id = $1 
     ORDER BY created_at ASC
   `;
@@ -343,8 +352,8 @@ module.exports = {
   updatePaymentStatus,
   cancel,
   complete,
-  addStatusTimeline,
-  getStatusTimeline,
+  addStatusHistory,
+  getStatusHistory,
   getActiveBookings,
   getTodayBookings
 };

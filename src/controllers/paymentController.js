@@ -1,79 +1,126 @@
-const Payment = require('../models/Payment');
-const Booking = require('../models/Booking');
-const Wallet = require('../models/Wallet');
+const { createPayment, findById, findByBookingId, updateStatus, refund, findAll } = require('../models/Payment');
+const { findById: findBookingById, updateStatus: updateBookingStatus } = require('../models/Booking');
+const { createNotification } = require('../models/Notification');
 
-exports.createPayment = async (req, res) => {
+exports.createBkashPayment = async (req, res) => {
   try {
-    const { booking_id, amount, payment_method, transaction_id, payment_gateway, gateway_response } = req.body;
+    const { booking_id, payment_type } = req.body;
 
-    if (!booking_id || !amount || !payment_method) {
-      return res.status(400).json({
-        success: false,
-        message: 'Booking ID, amount, and payment method are required'
-      });
+    if (!booking_id || !payment_type) {
+      return res.error('Booking ID and payment type are required');
     }
 
-    const booking = await Booking.findById(booking_id);
+    const booking = await findBookingById(booking_id);
     if (!booking) {
-      return res.status(404).json({
-        success: false,
-        message: 'Booking not found'
-      });
+      return res.notFound('Booking not found');
     }
 
     if (booking.user_id !== req.user.id) {
-      return res.status(403).json({
-        success: false,
-        message: 'Access denied'
-      });
+      return res.forbidden('Access denied');
     }
 
-    const payment = await Payment.create({
+    const amount = payment_type === 'ADVANCE' ? booking.advance_amount : booking.remaining_amount;
+
+    const payment = await createPayment({
       booking_id,
       user_id: req.user.id,
+      payment_type,
       amount,
-      payment_method,
-      transaction_id,
-      payment_gateway,
-      gateway_response
+      payment_method: 'bkash',
+      transaction_id: null,
+      payment_gateway: 'bkash',
+      gateway_response: null
     });
 
-    await Booking.updatePaymentStatus(booking_id, 'paid');
+    const paymentUrl = `https://checkout.bkash.com/v1.2.0-beta/checkout/payment?paymentID=${payment.id}`;
 
-    res.status(201).json({
-      success: true,
-      message: 'Payment created successfully',
-      payment
-    });
+    res.success({
+      paymentId: payment.id,
+      amount: payment.amount,
+      status: payment.status,
+      paymentUrl
+    }, 'bKash payment created successfully');
   } catch (error) {
-    console.error('Create payment error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to create payment'
-    });
+    console.error('Create bKash payment error:', error);
+    res.serverError('Failed to create bKash payment');
   }
 };
 
-exports.getPayments = async (req, res) => {
+exports.bkashCallback = async (req, res) => {
   try {
-    const { status, payment_method, limit } = req.query;
+    const { paymentID, status, transactionId } = req.query;
 
-    const payments = await Payment.findByUserId(req.user.id, {
-      status,
-      payment_method,
-      limit: limit || 20
-    });
+    const payment = await findById(paymentID);
+    if (!payment) {
+      return res.notFound('Payment not found');
+    }
 
-    res.status(200).json({
-      success: true,
-      payments
-    });
+    if (status === 'success') {
+      await updateStatus(payment.id, 'COMPLETED', { transaction_id: transactionId });
+      await updateBookingStatus(payment.booking_id, 'PAYMENT_PAID');
+      
+      await createNotification({
+        user_id: payment.user_id,
+        title: 'Payment Successful',
+        message: `Your payment of ৳${payment.amount} has been received.`,
+        type: 'PAYMENT',
+        reference_id: payment.id,
+        reference_type: 'payment'
+      });
+    } else {
+      await updateStatus(payment.id, 'FAILED');
+    }
+
+    res.redirect(`${process.env.FRONTEND_URL}/payment/callback?status=${status}&paymentID=${paymentID}`);
   } catch (error) {
-    console.error('Get payments error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch payments'
-    });
+    console.error('bKash callback error:', error);
+    res.serverError('Failed to process callback');
+  }
+};
+
+exports.executePayment = async (req, res) => {
+  try {
+    const { paymentID } = req.body;
+
+    const payment = await findById(paymentID);
+    if (!payment) {
+      return res.notFound('Payment not found');
+    }
+
+    if (payment.status !== 'PENDING') {
+      return res.error('Payment cannot be executed in current status');
+    }
+
+    await updateStatus(payment.id, 'PROCESSING');
+
+    res.success(null, 'Payment execution initiated');
+  } catch (error) {
+    console.error('Execute payment error:', error);
+    res.serverError('Failed to execute payment');
+  }
+};
+
+exports.verifyPayment = async (req, res) => {
+  try {
+    const { paymentID } = req.body;
+
+    const payment = await findById(paymentID);
+    if (!payment) {
+      return res.notFound('Payment not found');
+    }
+
+    if (payment.status === 'COMPLETED') {
+      await updateBookingStatus(payment.booking_id, 'PAYMENT_PAID');
+    }
+
+    res.success({
+      paymentId: payment.id,
+      status: payment.status,
+      amount: payment.amount
+    }, 'Payment verified');
+  } catch (error) {
+    console.error('Verify payment error:', error);
+    res.serverError('Failed to verify payment');
   }
 };
 
@@ -81,68 +128,84 @@ exports.getPayment = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const payment = await Payment.findById(id);
+    const payment = await findById(id);
 
     if (!payment) {
-      return res.status(404).json({
-        success: false,
-        message: 'Payment not found'
-      });
+      return res.notFound('Payment not found');
     }
 
-    if (payment.user_id !== req.user.id) {
-      return res.status(403).json({
-        success: false,
-        message: 'Access denied'
-      });
+    if (payment.user_id !== req.user.id && req.user.role !== 'ADMIN') {
+      return res.forbidden('Access denied');
     }
 
-    res.status(200).json({
-      success: true,
-      payment
-    });
+    res.success(payment);
   } catch (error) {
     console.error('Get payment error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch payment'
-    });
+    res.serverError('Failed to get payment');
   }
 };
 
 exports.refundPayment = async (req, res) => {
   try {
     const { id } = req.params;
-    const { refunded_amount, refund_reason } = req.body;
+    const { reason } = req.body;
 
-    const payment = await Payment.findById(id);
+    if (req.user.role !== 'ADMIN') {
+      return res.forbidden('Only admins can initiate refunds');
+    }
 
+    const payment = await findById(id);
     if (!payment) {
-      return res.status(404).json({
-        success: false,
-        message: 'Payment not found'
-      });
+      return res.notFound('Payment not found');
     }
 
-    if (payment.user_id !== req.user.id) {
-      return res.status(403).json({
-        success: false,
-        message: 'Access denied'
-      });
+    if (payment.status !== 'COMPLETED') {
+      return res.error('Can only refund completed payments');
     }
 
-    const refunded = await Payment.refund(id, refunded_amount || payment.amount, refund_reason);
+    const refunded = await refund(id, payment.amount, reason);
 
-    res.status(200).json({
-      success: true,
-      message: 'Payment refunded successfully',
-      payment: refunded
+    await createNotification({
+      user_id: payment.user_id,
+      title: 'Refund Initiated',
+      message: `Refund of ৳${payment.amount} has been initiated for your payment.`,
+      type: 'PAYMENT',
+      reference_id: payment.id,
+      reference_type: 'payment'
     });
+
+    res.success(refunded, 'Refund initiated successfully');
   } catch (error) {
     console.error('Refund payment error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to refund payment'
+    res.serverError('Failed to refund payment');
+  }
+};
+
+exports.listPayments = async (req, res) => {
+  try {
+    if (req.user.role !== 'ADMIN') {
+      return res.forbidden('Only admins can list all payments');
+    }
+
+    const { status, payment_method, date_from, date_to, page = 1, limit = 20 } = req.query;
+    const offset = (page - 1) * limit;
+
+    const payments = await findAll({
+      status,
+      payment_method,
+      date_from,
+      date_to,
+      limit: parseInt(limit),
+      offset: parseInt(offset)
     });
+
+    res.success(payments, null, {
+      page: parseInt(page),
+      limit: parseInt(limit),
+      total: payments.length
+    });
+  } catch (error) {
+    console.error('List payments error:', error);
+    res.serverError('Failed to list payments');
   }
 };

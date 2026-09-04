@@ -1,16 +1,18 @@
 const express = require('express');
 const router = express.Router();
+const { authenticate, authorize } = require('../middleware/auth');
 const nurseController = require('../controllers/nurseController');
-const { authenticate } = require('../middleware/auth');
 
-router.post('/profile', authenticate, nurseController.createNurseProfile);
-router.get('/profile', authenticate, nurseController.getNurseProfile);
-router.put('/profile', authenticate, nurseController.updateNurseProfile);
-router.put('/availability', authenticate, nurseController.updateAvailability);
-router.get('/search', nurseController.searchNurses);
-router.get('/:id', nurseController.getNurseById);
-router.get('/bookings', authenticate, nurseController.getProviderBookings);
-router.post('/bookings/:id/accept', authenticate, nurseController.acceptBooking);
-router.put('/bookings/:id/status', authenticate, nurseController.updateBookingStatus);
+router.post('/profile', authenticate, authorize(['NURSE']), nurseController.createProfile);
+router.get('/profile', authenticate, authorize(['NURSE']), nurseController.getMyProfile);
+router.put('/profile', authenticate, authorize(['NURSE']), nurseController.updateMyProfile);
+router.post('/documents', authenticate, authorize(['NURSE']), nurseController.submitDocument);
+router.get('/availability', authenticate, authorize(['NURSE']), nurseController.getMyAvailability);
+router.post('/availability', authenticate, authorize(['NURSE']), nurseController.setMyAvailability);
+router.get('/search', authenticate, nurseController.searchNurses);
+router.get('/:id', authenticate, nurseController.viewNurseProfile);
+router.get('/bookings/my', authenticate, authorize(['NURSE']), nurseController.getMyBookings);
+router.get('/earnings/my', authenticate, authorize(['NURSE']), nurseController.getMyEarnings);
+router.get('/reviews/my', authenticate, authorize(['NURSE']), nurseController.getMyReviews);
 
 module.exports = router;

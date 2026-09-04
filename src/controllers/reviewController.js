@@ -1,141 +1,56 @@
-const Review = require('../models/Review');
-const Booking = require('../models/Booking');
-const HelpingHand = require('../models/HelpingHand');
-const Nurse = require('../models/Nurse');
-const Doctor = require('../models/Doctor');
-
-exports.createReview = async (req, res) => {
-  try {
-    const {
-      booking_id, provider_id, provider_type, overall_rating,
-      punctuality_rating, politeness_rating, professionalism_rating,
-      helpfulness_rating, trustworthiness_rating, review
-    } = req.body;
-
-    if (!booking_id || !provider_id || !provider_type || !overall_rating) {
-      return res.status(400).json({
-        success: false,
-        message: 'Booking ID, provider ID, provider type, and overall rating are required'
-      });
-    }
-
-    const booking = await Booking.findById(booking_id);
-    if (!booking) {
-      return res.status(404).json({
-        success: false,
-        message: 'Booking not found'
-      });
-    }
-
-    if (booking.user_id !== req.user.id) {
-      return res.status(403).json({
-        success: false,
-        message: 'Access denied'
-      });
-    }
-
-    if (booking.status !== 'completed') {
-      return res.status(400).json({
-        success: false,
-        message: 'Can only review completed bookings'
-      });
-    }
-
-    const existingReview = await Review.findByBookingId(booking_id);
-    if (existingReview) {
-      return res.status(400).json({
-        success: false,
-        message: 'Review already exists for this booking'
-      });
-    }
-
-    const newReview = await Review.create({
-      booking_id,
-      user_id: req.user.id,
-      provider_id,
-      provider_type,
-      overall_rating,
-      punctuality_rating,
-      politeness_rating,
-      professionalism_rating,
-      helpfulness_rating,
-      trustworthiness_rating,
-      review
-    });
-
-    const avgRating = await Review.getProviderAverageRating(provider_id, provider_type);
-
-    if (provider_type === 'helping_hand') {
-      await HelpingHand.updateRating(provider_id, avgRating.avg_overall);
-    } else if (provider_type === 'nurse') {
-      await Nurse.updateRating(provider_id, avgRating.avg_overall);
-    } else if (provider_type === 'doctor') {
-      await Doctor.updateRating(provider_id, avgRating.avg_overall);
-    }
-
-    res.status(201).json({
-      success: true,
-      message: 'Review created successfully',
-      review: newReview
-    });
-  } catch (error) {
-    console.error('Create review error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to create review'
-    });
-  }
-};
+const { findByProviderId, findByUserId, updateReview, getProviderAverageRating } = require('../models/Review');
+const { findById: findBookingById } = require('../models/Booking');
+const { updateRating: updateCaregiverRating } = require('../models/CaregiverProfile');
+const { updateRating: updateNurseRating } = require('../models/NurseProfile');
 
 exports.getProviderReviews = async (req, res) => {
   try {
-    const { provider_id, provider_type, limit } = req.query;
+    const { provider_id, provider_type, page = 1, limit = 20 } = req.query;
+    const offset = (page - 1) * limit;
 
     if (!provider_id || !provider_type) {
-      return res.status(400).json({
-        success: false,
-        message: 'Provider ID and type are required'
-      });
+      return res.error('Provider ID and type are required');
     }
 
-    const reviews = await Review.findByProviderId(provider_id, provider_type, {
-      limit: limit || 20
+    const reviews = await findByProviderId(provider_id, provider_type, {
+      limit: parseInt(limit),
+      offset: parseInt(offset)
     });
 
-    const avgRating = await Review.getProviderAverageRating(provider_id, provider_type);
+    const avgRating = await getProviderAverageRating(provider_id, provider_type);
 
-    res.status(200).json({
-      success: true,
+    res.success({
       reviews,
       averageRating: avgRating
+    }, null, {
+      page: parseInt(page),
+      limit: parseInt(limit),
+      total: reviews.length
     });
   } catch (error) {
     console.error('Get reviews error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch reviews'
-    });
+    res.serverError('Failed to fetch reviews');
   }
 };
 
 exports.getUserReviews = async (req, res) => {
   try {
-    const { limit } = req.query;
+    const { page = 1, limit = 20 } = req.query;
+    const offset = (page - 1) * limit;
 
-    const reviews = await Review.findByUserId(req.user.id, {
-      limit: limit || 20
+    const reviews = await findByUserId(req.user.id, {
+      limit: parseInt(limit),
+      offset: parseInt(offset)
     });
 
-    res.status(200).json({
-      success: true,
-      reviews
+    res.success(reviews, null, {
+      page: parseInt(page),
+      limit: parseInt(limit),
+      total: reviews.length
     });
   } catch (error) {
     console.error('Get user reviews error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch reviews'
-    });
+    res.serverError('Failed to fetch reviews');
   }
 };
 
@@ -147,23 +62,18 @@ exports.updateReview = async (req, res) => {
       helpfulness_rating, trustworthiness_rating, review
     } = req.body;
 
-    const existingReview = await Review.findById(id);
+    const existingReview = await findByProviderId(req.user.id, 'USER', { limit: 1 });
+    const reviewToUpdate = existingReview.find(r => r.id === id);
 
-    if (!existingReview) {
-      return res.status(404).json({
-        success: false,
-        message: 'Review not found'
-      });
+    if (!reviewToUpdate) {
+      return res.notFound('Review not found');
     }
 
-    if (existingReview.user_id !== req.user.id) {
-      return res.status(403).json({
-        success: false,
-        message: 'Access denied'
-      });
+    if (reviewToUpdate.user_id !== req.user.id) {
+      return res.forbidden('Access denied');
     }
 
-    const updated = await Review.update(id, {
+    const updated = await updateReview(id, {
       overall_rating,
       punctuality_rating,
       politeness_rating,
@@ -173,29 +83,20 @@ exports.updateReview = async (req, res) => {
       review
     });
 
-    const avgRating = await Review.getProviderAverageRating(
-      existingReview.provider_id,
-      existingReview.provider_type
+    const avgRating = await getProviderAverageRating(
+      reviewToUpdate.provider_id,
+      reviewToUpdate.provider_type
     );
 
-    if (existingReview.provider_type === 'helping_hand') {
-      await HelpingHand.updateRating(existingReview.provider_id, avgRating.avg_overall);
-    } else if (existingReview.provider_type === 'nurse') {
-      await Nurse.updateRating(existingReview.provider_id, avgRating.avg_overall);
-    } else if (existingReview.provider_type === 'doctor') {
-      await Doctor.updateRating(existingReview.provider_id, avgRating.avg_overall);
+    if (reviewToUpdate.provider_type === 'CAREGIVER') {
+      await updateCaregiverRating(reviewToUpdate.provider_id, avgRating.avg_overall);
+    } else if (reviewToUpdate.provider_type === 'NURSE') {
+      await updateNurseRating(reviewToUpdate.provider_id, avgRating.avg_overall);
     }
 
-    res.status(200).json({
-      success: true,
-      message: 'Review updated successfully',
-      review: updated
-    });
+    res.success(updated, 'Review updated successfully');
   } catch (error) {
     console.error('Update review error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to update review'
-    });
+    res.serverError('Failed to update review');
   }
 };

@@ -2,20 +2,20 @@ const pool = require('../config/database');
 
 const createPayment = async (paymentData) => {
   const {
-    booking_id, user_id, amount, payment_method, transaction_id,
+    booking_id, user_id, payment_type, amount, payment_method, transaction_id,
     payment_gateway, gateway_response
   } = paymentData;
 
   const query = `
     INSERT INTO payments (
-      booking_id, user_id, amount, payment_method, transaction_id,
+      booking_id, user_id, payment_type, amount, payment_method, transaction_id,
       payment_gateway, gateway_response
     )
-    VALUES ($1, $2, $3, $4, $5, $6, $7)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
     RETURNING *
   `;
   const values = [
-    booking_id, user_id, amount, payment_method, transaction_id,
+    booking_id, user_id, payment_type, amount, payment_method, transaction_id,
     payment_gateway, gateway_response
   ];
 

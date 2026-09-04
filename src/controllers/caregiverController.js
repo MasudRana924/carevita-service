@@ -1,4 +1,4 @@
-const { createNurseProfile, getNurseProfileByUserId, updateNurseProfile, updateVerificationStatus, searchNurses, updateRating } = require('../models/NurseProfile');
+const { createCaregiverProfile, getCaregiverProfileByUserId, updateCaregiverProfile, updateVerificationStatus, searchCaregivers, updateRating } = require('../models/CaregiverProfile');
 const { createProviderDocument, getDocumentsByProvider, updateVerificationStatus: updateDocVerification } = require('../models/ProviderDocument');
 const { createAvailabilitySlot, getAvailabilityByProvider, deleteSlotsByProvider } = require('../models/AvailabilitySlot');
 const { findByProviderId: findBookingsByProviderId } = require('../models/Booking');
@@ -6,33 +6,31 @@ const { findByProviderId: findReviewsByProviderId, getProviderAverageRating } = 
 
 exports.createProfile = async (req, res) => {
   try {
-    const { qualification, specialization, license_number, experience_years, service_areas, hourly_rate } = req.body;
+    const { bio, experience_years, service_areas, hourly_rate } = req.body;
     
-    const existingProfile = await getNurseProfileByUserId(req.user.id);
+    const existingProfile = await getCaregiverProfileByUserId(req.user.id);
     if (existingProfile) {
       return res.error('Profile already exists', [], 409);
     }
 
-    const profile = await createNurseProfile({
+    const profile = await createCaregiverProfile({
       user_id: req.user.id,
-      qualification,
-      specialization,
-      license_number,
+      bio,
       experience_years,
       service_areas,
       hourly_rate
     });
 
-    res.created(profile, 'Nurse profile created successfully');
+    res.created(profile, 'Caregiver profile created successfully');
   } catch (error) {
-    console.error('Create nurse profile error:', error);
-    res.serverError('Failed to create nurse profile');
+    console.error('Create caregiver profile error:', error);
+    res.serverError('Failed to create caregiver profile');
   }
 };
 
 exports.getMyProfile = async (req, res) => {
   try {
-    const profile = await getNurseProfileByUserId(req.user.id);
+    const profile = await getCaregiverProfileByUserId(req.user.id);
     
     if (!profile) {
       return res.notFound('Profile not found');
@@ -40,19 +38,17 @@ exports.getMyProfile = async (req, res) => {
 
     res.success(profile);
   } catch (error) {
-    console.error('Get nurse profile error:', error);
-    res.serverError('Failed to get nurse profile');
+    console.error('Get caregiver profile error:', error);
+    res.serverError('Failed to get caregiver profile');
   }
 };
 
 exports.updateMyProfile = async (req, res) => {
   try {
-    const { qualification, specialization, license_number, experience_years, service_areas, hourly_rate, is_available } = req.body;
+    const { bio, experience_years, service_areas, hourly_rate, is_available } = req.body;
     
-    const profile = await updateNurseProfile(req.user.id, {
-      qualification,
-      specialization,
-      license_number,
+    const profile = await updateCaregiverProfile(req.user.id, {
+      bio,
       experience_years,
       service_areas,
       hourly_rate,
@@ -61,8 +57,8 @@ exports.updateMyProfile = async (req, res) => {
 
     res.success(profile, 'Profile updated successfully');
   } catch (error) {
-    console.error('Update nurse profile error:', error);
-    res.serverError('Failed to update nurse profile');
+    console.error('Update caregiver profile error:', error);
+    res.serverError('Failed to update caregiver profile');
   }
 };
 
@@ -78,7 +74,7 @@ exports.submitDocument = async (req, res) => {
     
     const document = await createProviderDocument({
       provider_id: req.user.id,
-      provider_type: 'NURSE',
+      provider_type: 'CAREGIVER',
       document_type,
       document_url
     });
@@ -94,7 +90,7 @@ exports.getMyAvailability = async (req, res) => {
   try {
     const { date_from, date_to } = req.query;
     
-    const slots = await getAvailabilityByProvider(req.user.id, 'NURSE', {
+    const slots = await getAvailabilityByProvider(req.user.id, 'CAREGIVER', {
       date_from,
       date_to
     });
@@ -110,13 +106,13 @@ exports.setMyAvailability = async (req, res) => {
   try {
     const { is_available, slots } = req.body;
     
-    await deleteSlotsByProvider(req.user.id, 'NURSE');
+    await deleteSlotsByProvider(req.user.id, 'CAREGIVER');
     
     if (slots && slots.length > 0) {
       for (const slot of slots) {
         await createAvailabilitySlot({
           provider_id: req.user.id,
-          provider_type: 'NURSE',
+          provider_type: 'CAREGIVER',
           date: slot.date,
           start_time: slot.startTime,
           end_time: slot.endTime,
@@ -132,44 +128,43 @@ exports.setMyAvailability = async (req, res) => {
   }
 };
 
-exports.searchNurses = async (req, res) => {
+exports.searchCaregivers = async (req, res) => {
   try {
-    const { service_area, specialization, verification_status, min_rating, page = 1, limit = 20 } = req.query;
+    const { service_area, verification_status, min_rating, page = 1, limit = 20 } = req.query;
     
-    const nurses = await searchNurses({
+    const caregivers = await searchCaregivers({
       service_area,
-      specialization,
       verification_status,
       min_rating,
       page: parseInt(page),
       limit: parseInt(limit)
     });
 
-    res.success(nurses, null, {
+    res.success(caregivers, null, {
       page: parseInt(page),
       limit: parseInt(limit),
-      total: nurses.length
+      total: caregivers.length
     });
   } catch (error) {
-    console.error('Search nurses error:', error);
-    res.serverError('Failed to search nurses');
+    console.error('Search caregivers error:', error);
+    res.serverError('Failed to search caregivers');
   }
 };
 
-exports.viewNurseProfile = async (req, res) => {
+exports.viewCaregiverProfile = async (req, res) => {
   try {
     const { id } = req.params;
     
-    const profile = await getNurseProfileByUserId(id);
+    const profile = await getCaregiverProfileByUserId(id);
     
     if (!profile) {
-      return res.notFound('Nurse profile not found');
+      return res.notFound('Caregiver profile not found');
     }
 
     res.success(profile);
   } catch (error) {
-    console.error('View nurse profile error:', error);
-    res.serverError('Failed to view nurse profile');
+    console.error('View caregiver profile error:', error);
+    res.serverError('Failed to view caregiver profile');
   }
 };
 
@@ -177,18 +172,18 @@ exports.getMyBookings = async (req, res) => {
   try {
     const { status } = req.query;
     
-    const bookings = await findBookingsByProviderId(req.user.id, 'NURSE', { status });
+    const bookings = await findBookingsByProviderId(req.user.id, 'CAREGIVER', { status });
 
     res.success(bookings);
   } catch (error) {
-    console.error('Get nurse bookings error:', error);
-    res.serverError('Failed to get nurse bookings');
+    console.error('Get caregiver bookings error:', error);
+    res.serverError('Failed to get caregiver bookings');
   }
 };
 
 exports.getMyEarnings = async (req, res) => {
   try {
-    const bookings = await findBookingsByProviderId(req.user.id, 'NURSE', {
+    const bookings = await findBookingsByProviderId(req.user.id, 'CAREGIVER', {
       status: 'SERVICE_COMPLETED'
     });
 
@@ -209,12 +204,12 @@ exports.getMyReviews = async (req, res) => {
   try {
     const { page = 1, limit = 20 } = req.query;
     
-    const reviews = await findReviewsByProviderId(req.user.id, 'NURSE', {
+    const reviews = await findReviewsByProviderId(req.user.id, 'CAREGIVER', {
       limit: parseInt(limit),
       offset: (parseInt(page) - 1) * parseInt(limit)
     });
 
-    const avgRating = await getProviderAverageRating(req.user.id, 'NURSE');
+    const avgRating = await getProviderAverageRating(req.user.id, 'CAREGIVER');
 
     res.success({
       reviews,

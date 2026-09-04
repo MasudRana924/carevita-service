@@ -1,68 +1,74 @@
-const User = require('../models/User');
-const Booking = require('../models/Booking');
-const HelpingHand = require('../models/HelpingHand');
-const Nurse = require('../models/Nurse');
-const Doctor = require('../models/Doctor');
-const Hospital = require('../models/Hospital');
-const SupportTicket = require('../models/SupportTicket');
-const Payment = require('../models/Payment');
+const pool = require('../config/database');
+const { findAll: findAllBookings, getActiveBookings, getTodayBookings } = require('../models/Booking');
+const { searchCaregivers } = require('../models/CaregiverProfile');
+const { searchNurses } = require('../models/NurseProfile');
+const { updateVerificationStatus: updateCaregiverVerification } = require('../models/CaregiverProfile');
+const { updateVerificationStatus: updateNurseVerification } = require('../models/NurseProfile');
+const { getDocumentsByProvider, updateVerificationStatus: updateDocVerification } = require('../models/ProviderDocument');
+const { findAll: findAllPayments } = require('../models/Payment');
+const { createNotification } = require('../models/Notification');
 
 exports.getDashboardStats = async (req, res) => {
   try {
-    const totalUsers = await User.findAll({ limit: 1 });
-    const totalBookings = await Booking.findAll({ limit: 1 });
-    const activeBookings = await Booking.getActiveBookings();
-    const todayBookings = await Booking.getTodayBookings();
-    const totalHelpingHands = await HelpingHand.findAll({ limit: 1 });
-    const totalNurses = await Nurse.findAll({ limit: 1 });
-    const totalDoctors = await Doctor.findAll({ limit: 1 });
-    const openTickets = await SupportTicket.findAll({ status: 'open', limit: 1 });
-    const ticketStats = await SupportTicket.getTicketStats();
+    const usersResult = await pool.query('SELECT COUNT(*) as count FROM users');
+    const bookingsResult = await pool.query('SELECT COUNT(*) as count FROM bookings');
+    const paymentsResult = await pool.query('SELECT COUNT(*) as count FROM payments WHERE status = $1', ['COMPLETED']);
+    const revenueResult = await pool.query('SELECT COALESCE(SUM(amount), 0) as total FROM payments WHERE status = $1', ['COMPLETED']);
+    const caregiversResult = await pool.query('SELECT COUNT(*) as count FROM caregiver_profiles');
+    const nursesResult = await pool.query('SELECT COUNT(*) as count FROM nurse_profiles');
+    const pendingVerificationsResult = await pool.query(`
+      SELECT COUNT(*) as count FROM provider_documents 
+      WHERE verification_status = 'PENDING'
+    `);
 
-    res.status(200).json({
-      success: true,
-      stats: {
-        totalUsers: totalUsers.length,
-        totalBookings: totalBookings.length,
-        activeBookings: activeBookings.length,
-        todayBookings: todayBookings.length,
-        totalHelpingHands: totalHelpingHands.length,
-        totalNurses: totalNurses.length,
-        totalDoctors: totalDoctors.length,
-        openTickets: openTickets.length,
-        ticketStats
-      }
+    const activeBookings = await getActiveBookings();
+    const todayBookings = await getTodayBookings();
+
+    res.success({
+      totalUsers: parseInt(usersResult.rows[0].count),
+      totalBookings: parseInt(bookingsResult.rows[0].count),
+      activeBookings: activeBookings.length,
+      todayBookings: todayBookings.length,
+      totalPayments: parseInt(paymentsResult.rows[0].count),
+      totalRevenue: parseFloat(revenueResult.rows[0].total),
+      totalCaregivers: parseInt(caregiversResult.rows[0].count),
+      totalNurses: parseInt(nursesResult.rows[0].count),
+      pendingVerifications: parseInt(pendingVerificationsResult.rows[0].count)
     });
   } catch (error) {
     console.error('Get dashboard stats error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch dashboard stats'
-    });
+    res.serverError('Failed to fetch dashboard stats');
   }
 };
 
 exports.getAllUsers = async (req, res) => {
   try {
-    const { role, status, limit, offset } = req.query;
+    const { role, page = 1, limit = 20 } = req.query;
+    const offset = (page - 1) * limit;
 
-    const users = await User.findAll({
-      role,
-      status,
-      limit: limit || 50,
-      offset: offset || 0
-    });
+    let query = 'SELECT id, name, email, phone, role, is_verified, status, created_at FROM users WHERE 1=1';
+    const values = [];
+    let paramCount = 0;
 
-    res.status(200).json({
-      success: true,
-      users
+    if (role) {
+      paramCount++;
+      query += ` AND role = $${paramCount}`;
+      values.push(role);
+    }
+
+    query += ' ORDER BY created_at DESC LIMIT $' + (paramCount + 1) + ' OFFSET $' + (paramCount + 2);
+    values.push(parseInt(limit), parseInt(offset));
+
+    const result = await pool.query(query, values);
+
+    res.success(result.rows, null, {
+      page: parseInt(page),
+      limit: parseInt(limit),
+      total: result.rows.length
     });
   } catch (error) {
     console.error('Get users error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch users'
-    });
+    res.serverError('Failed to fetch users');
   }
 };
 
@@ -71,236 +77,266 @@ exports.updateUserStatus = async (req, res) => {
     const { id } = req.params;
     const { status } = req.body;
 
-    const user = await User.updateStatus(id, status);
+    const query = 'UPDATE users SET status = $1 WHERE id = $2 RETURNING *';
+    const result = await pool.query(query, [status, id]);
 
-    res.status(200).json({
-      success: true,
-      message: 'User status updated successfully',
-      user
+    if (result.rows.length === 0) {
+      return res.notFound('User not found');
+    }
+
+    await createNotification({
+      user_id: id,
+      title: 'Account Status Updated',
+      message: `Your account status has been updated to ${status}.`,
+      type: 'ACCOUNT',
+      reference_id: id,
+      reference_type: 'user'
     });
+
+    res.success(result.rows[0], 'User status updated successfully');
   } catch (error) {
     console.error('Update user status error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to update user status'
-    });
+    res.serverError('Failed to update user status');
   }
 };
 
 exports.getAllBookings = async (req, res) => {
   try {
-    const { status, provider_type, date_from, date_to, limit, offset } = req.query;
+    const { status, provider_type, page = 1, limit = 20 } = req.query;
+    const offset = (page - 1) * limit;
 
-    const bookings = await Booking.findAll({
+    const bookings = await findAllBookings({
       status,
       provider_type,
-      date_from,
-      date_to,
-      limit: limit || 50,
-      offset: offset || 0
+      limit: parseInt(limit),
+      offset: parseInt(offset)
     });
 
-    res.status(200).json({
-      success: true,
-      bookings
+    res.success(bookings, null, {
+      page: parseInt(page),
+      limit: parseInt(limit),
+      total: bookings.length
     });
   } catch (error) {
     console.error('Get bookings error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch bookings'
-    });
+    res.serverError('Failed to fetch bookings');
   }
 };
 
 exports.getAllProviders = async (req, res) => {
   try {
-    const { provider_type, limit, offset } = req.query;
+    const { provider_type, verification_status, page = 1, limit = 20 } = req.query;
+    const offset = (page - 1) * limit;
 
     let providers = [];
-    if (provider_type === 'helping_hand') {
-      providers = await HelpingHand.findAll({ limit, offset });
-    } else if (provider_type === 'nurse') {
-      providers = await Nurse.findAll({ limit, offset });
-    } else if (provider_type === 'doctor') {
-      providers = await Doctor.findAll({ limit, offset });
+    if (provider_type === 'CAREGIVER' || !provider_type) {
+      providers = await searchCaregivers({
+        verification_status,
+        page: parseInt(page),
+        limit: parseInt(limit)
+      });
+    } else if (provider_type === 'NURSE') {
+      providers = await searchNurses({
+        verification_status,
+        page: parseInt(page),
+        limit: parseInt(limit)
+      });
     }
 
-    res.status(200).json({
-      success: true,
-      providers
+    res.success(providers, null, {
+      page: parseInt(page),
+      limit: parseInt(limit),
+      total: providers.length
     });
   } catch (error) {
     console.error('Get providers error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch providers'
-    });
+    res.serverError('Failed to fetch providers');
   }
 };
 
 exports.verifyProvider = async (req, res) => {
   try {
     const { id } = req.params;
-    const { provider_type, verification_data } = req.body;
+    const { provider_type, verification_status, note } = req.body;
 
-    if (provider_type === 'helping_hand') {
-      await HelpingHand.updateVerification(id, verification_data);
-    } else if (provider_type === 'nurse') {
-      await Nurse.updateVerification(id, verification_data);
-    } else if (provider_type === 'doctor') {
-      await Doctor.updateVerification(id, verification_data.is_verified);
+    if (provider_type === 'CAREGIVER') {
+      await updateCaregiverVerification(id, verification_status, note);
+    } else if (provider_type === 'NURSE') {
+      await updateNurseVerification(id, verification_status, note);
     }
 
-    res.status(200).json({
-      success: true,
-      message: 'Provider verification updated successfully'
+    await createNotification({
+      user_id: id,
+      title: 'Verification Status Updated',
+      message: `Your provider verification status has been updated to ${verification_status}.`,
+      type: 'VERIFICATION',
+      reference_id: id,
+      reference_type: 'provider'
     });
+
+    res.success(null, 'Provider verification updated successfully');
   } catch (error) {
     console.error('Verify provider error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to verify provider'
-    });
+    res.serverError('Failed to verify provider');
   }
 };
 
-exports.getAllSupportTickets = async (req, res) => {
+exports.getPendingDocuments = async (req, res) => {
   try {
-    const { status, category, priority, assigned_to, limit, offset } = req.query;
+    const { page = 1, limit = 20 } = req.query;
+    const offset = (page - 1) * limit;
 
-    const tickets = await SupportTicket.findAll({
-      status,
-      category,
-      priority,
-      assigned_to,
-      limit: limit || 50,
-      offset: offset || 0
-    });
+    const query = `
+      SELECT pd.*, u.name as provider_name, u.email as provider_email
+      FROM provider_documents pd
+      JOIN users u ON pd.provider_id = u.id
+      WHERE pd.verification_status = 'PENDING'
+      ORDER BY pd.submitted_at DESC
+      LIMIT $1 OFFSET $2
+    `;
+    const result = await pool.query(query, [parseInt(limit), parseInt(offset)]);
 
-    res.status(200).json({
-      success: true,
-      tickets
+    res.success(result.rows, null, {
+      page: parseInt(page),
+      limit: parseInt(limit),
+      total: result.rows.length
     });
   } catch (error) {
-    console.error('Get tickets error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch support tickets'
-    });
+    console.error('Get pending documents error:', error);
+    res.serverError('Failed to fetch pending documents');
   }
 };
 
-exports.assignSupportTicket = async (req, res) => {
+exports.verifyDocument = async (req, res) => {
   try {
     const { id } = req.params;
-    const { assigned_to } = req.body;
+    const { verification_status, note } = req.body;
 
-    const ticket = await SupportTicket.assign(id, assigned_to);
+    const document = await updateDocVerification(id, verification_status, note);
 
-    res.status(200).json({
-      success: true,
-      message: 'Ticket assigned successfully',
-      ticket
+    await createNotification({
+      user_id: document.provider_id,
+      title: 'Document Verification Updated',
+      message: `Your document verification status has been updated to ${verification_status}.`,
+      type: 'VERIFICATION',
+      reference_id: id,
+      reference_type: 'document'
     });
+
+    res.success(document, 'Document verification updated successfully');
   } catch (error) {
-    console.error('Assign ticket error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to assign ticket'
-    });
-  }
-};
-
-exports.resolveSupportTicket = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { resolution } = req.body;
-
-    const ticket = await SupportTicket.resolve(id, resolution);
-
-    res.status(200).json({
-      success: true,
-      message: 'Ticket resolved successfully',
-      ticket
-    });
-  } catch (error) {
-    console.error('Resolve ticket error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to resolve ticket'
-    });
+    console.error('Verify document error:', error);
+    res.serverError('Failed to verify document');
   }
 };
 
 exports.getAllPayments = async (req, res) => {
   try {
-    const { status, payment_method, date_from, date_to, limit, offset } = req.query;
+    const { status, payment_method, page = 1, limit = 20 } = req.query;
+    const offset = (page - 1) * limit;
 
-    const payments = await Payment.findAll({
+    const payments = await findAllPayments({
       status,
       payment_method,
-      date_from,
-      date_to,
-      limit: limit || 50,
-      offset: offset || 0
+      limit: parseInt(limit),
+      offset: parseInt(offset)
     });
 
-    res.status(200).json({
-      success: true,
-      payments
+    res.success(payments, null, {
+      page: parseInt(page),
+      limit: parseInt(limit),
+      total: payments.length
     });
   } catch (error) {
     console.error('Get payments error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch payments'
-    });
+    res.serverError('Failed to fetch payments');
   }
 };
 
 exports.getAllHospitals = async (req, res) => {
   try {
-    const { city, district, type, limit, offset } = req.query;
+    const { district, page = 1, limit = 20 } = req.query;
+    const offset = (page - 1) * limit;
 
-    const hospitals = await Hospital.findAll({
-      city,
-      district,
-      type,
-      limit: limit || 50,
-      offset: offset || 0
-    });
+    let query = 'SELECT * FROM hospitals WHERE is_active = true';
+    const values = [];
+    let paramCount = 0;
 
-    res.status(200).json({
-      success: true,
-      hospitals
+    if (district) {
+      paramCount++;
+      query += ` AND district = $${paramCount}`;
+      values.push(district);
+    }
+
+    query += ' ORDER BY name LIMIT $' + (paramCount + 1) + ' OFFSET $' + (paramCount + 2);
+    values.push(parseInt(limit), parseInt(offset));
+
+    const result = await pool.query(query, values);
+
+    res.success(result.rows, null, {
+      page: parseInt(page),
+      limit: parseInt(limit),
+      total: result.rows.length
     });
   } catch (error) {
     console.error('Get hospitals error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch hospitals'
-    });
+    res.serverError('Failed to fetch hospitals');
   }
 };
 
-exports.verifyHospital = async (req, res) => {
+exports.updateHospitalStatus = async (req, res) => {
   try {
     const { id } = req.params;
-    const { is_verified } = req.body;
+    const { is_active } = req.body;
 
-    const hospital = await Hospital.updateVerification(id, is_verified);
+    const query = 'UPDATE hospitals SET is_active = $1 WHERE id = $2 RETURNING *';
+    const result = await pool.query(query, [is_active, id]);
 
-    res.status(200).json({
-      success: true,
-      message: 'Hospital verification updated successfully',
-      hospital
-    });
+    if (result.rows.length === 0) {
+      return res.notFound('Hospital not found');
+    }
+
+    res.success(result.rows[0], 'Hospital status updated successfully');
   } catch (error) {
-    console.error('Verify hospital error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to verify hospital'
-    });
+    console.error('Update hospital status error:', error);
+    res.serverError('Failed to update hospital status');
+  }
+};
+
+exports.getRevenueStats = async (req, res) => {
+  try {
+    const { date_from, date_to } = req.query;
+
+    let query = `
+      SELECT 
+        DATE(created_at) as date,
+        COUNT(*) as transactions,
+        COALESCE(SUM(amount), 0) as revenue
+      FROM payments
+      WHERE status = 'COMPLETED'
+    `;
+    const values = [];
+    let paramCount = 0;
+
+    if (date_from) {
+      paramCount++;
+      query += ` AND created_at >= $${paramCount}`;
+      values.push(date_from);
+    }
+
+    if (date_to) {
+      paramCount++;
+      query += ` AND created_at <= $${paramCount}`;
+      values.push(date_to);
+    }
+
+    query += ' GROUP BY DATE(created_at) ORDER BY date DESC';
+
+    const result = await pool.query(query, values);
+
+    res.success(result.rows);
+  } catch (error) {
+    console.error('Get revenue stats error:', error);
+    res.serverError('Failed to fetch revenue stats');
   }
 };
