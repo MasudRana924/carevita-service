@@ -85,6 +85,8 @@ const createTables = async () => {
         is_verified BOOLEAN DEFAULT false,
         language_preference VARCHAR(10) DEFAULT 'en',
         emergency_contact VARCHAR(20),
+        address TEXT,
+        date_of_birth DATE,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );

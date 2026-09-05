@@ -203,7 +203,7 @@
               "host": ["{{baseUrl}}"],
               "path": ["user", "profile"]
             },
-            "description": "Update current user profile with optional photo upload"
+            "description": "Update current user profile with optional photo upload. Run the migration SQL file first to add address and date_of_birth columns."
           }
         },
         {
