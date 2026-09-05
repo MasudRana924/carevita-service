@@ -392,11 +392,6 @@
                   "type": "text"
                 },
                 {
-                  "key": "description",
-                  "value": "Family member description",
-                  "type": "text"
-                },
-                {
                   "key": "photo",
                   "type": "file",
                   "src": "/path/to/photo.jpg"
@@ -426,11 +421,11 @@
               "host": ["{{baseUrl}}"],
               "path": ["family-members"]
             },
-            "description": "Get all family members for current user"
+            "description": "Get all family members for current user. Returns 'No family members added yet' if empty."
           }
         },
         {
-          "name": "View Family Member",
+          "name": "Get Family Member Details",
           "request": {
             "method": "GET",
             "header": [
@@ -450,7 +445,7 @@
                 }
               ]
             },
-            "description": "Get details of a specific family member"
+            "description": "Get details of a specific family member by ID"
           }
         },
         {
@@ -489,11 +484,6 @@
                 {
                   "key": "date_of_birth",
                   "value": "1990-05-15",
-                  "type": "text"
-                },
-                {
-                  "key": "description",
-                  "value": "Updated description",
                   "type": "text"
                 },
                 {
