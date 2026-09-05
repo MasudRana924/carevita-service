@@ -3,7 +3,7 @@ const { createAddress } = require('../models/Address');
 
 exports.addFamilyMember = async (req, res) => {
   try {
-    const { name, relationship, phone, blood_group, date_of_birth, description } = req.body;
+    const { name, relationship, phone, blood_group, date_of_birth } = req.body;
     
     let photoUrl = null;
     if (req.file) {
@@ -24,8 +24,7 @@ exports.addFamilyMember = async (req, res) => {
       medical_history: null,
       existing_conditions: null,
       allergies: null,
-      current_medications: null,
-      description
+      current_medications: null
     });
 
     res.created(familyMember, 'Family member added successfully');
@@ -70,7 +69,7 @@ exports.viewFamilyMember = async (req, res) => {
 exports.updateFamilyMember = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, relationship, phone, blood_group, date_of_birth, description } = req.body;
+    const { name, relationship, phone, blood_group, date_of_birth } = req.body;
     
     const familyMember = await findByUserIdAndId(req.user.id, id);
     
@@ -96,8 +95,7 @@ exports.updateFamilyMember = async (req, res) => {
       medical_history: null,
       existing_conditions: null,
       allergies: null,
-      current_medications: null,
-      description
+      current_medications: null
     });
 
     res.success(updatedMember, 'Family member updated successfully');
