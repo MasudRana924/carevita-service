@@ -4,22 +4,22 @@ const createFamilyMember = async (memberData) => {
   const {
     user_id, name, photo, date_of_birth, gender, relationship, blood_group,
     address_id, emergency_contact_name, emergency_contact_phone, medical_history,
-    existing_conditions, allergies, current_medications
+    existing_conditions, allergies, current_medications, description
   } = memberData;
 
   const query = `
     INSERT INTO family_members (
       user_id, name, photo, date_of_birth, gender, relationship, blood_group,
       address_id, emergency_contact_name, emergency_contact_phone, medical_history,
-      existing_conditions, allergies, current_medications
+      existing_conditions, allergies, current_medications, description
     )
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
     RETURNING *
   `;
   const values = [
     user_id, name, photo, date_of_birth, gender, relationship, blood_group,
     address_id, emergency_contact_name, emergency_contact_phone, medical_history,
-    existing_conditions, allergies, current_medications
+    existing_conditions, allergies, current_medications, description
   ];
 
   const result = await pool.query(query, values);
@@ -42,7 +42,7 @@ const updateFamilyMember = async (id, memberData) => {
   const {
     name, photo, date_of_birth, gender, relationship, blood_group,
     address_id, emergency_contact_name, emergency_contact_phone, medical_history,
-    existing_conditions, allergies, current_medications
+    existing_conditions, allergies, current_medications, description
   } = memberData;
 
   const query = `
@@ -60,14 +60,15 @@ const updateFamilyMember = async (id, memberData) => {
         existing_conditions = COALESCE($11, existing_conditions),
         allergies = COALESCE($12, allergies),
         current_medications = COALESCE($13, current_medications),
+        description = COALESCE($14, description),
         updated_at = CURRENT_TIMESTAMP
-    WHERE id = $14
+    WHERE id = $15
     RETURNING *
   `;
   const values = [
     name, photo, date_of_birth, gender, relationship, blood_group,
     address_id, emergency_contact_name, emergency_contact_phone, medical_history,
-    existing_conditions, allergies, current_medications, id
+    existing_conditions, allergies, current_medications, description, id
   ];
 
   const result = await pool.query(query, values);

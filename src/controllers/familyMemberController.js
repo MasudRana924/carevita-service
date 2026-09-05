@@ -3,36 +3,29 @@ const { createAddress } = require('../models/Address');
 
 exports.addFamilyMember = async (req, res) => {
   try {
-    const { name, relationship, phone, gender, date_of_birth, blood_group, address, emergency_contact } = req.body;
+    const { name, relationship, phone, blood_group, date_of_birth, description } = req.body;
     
-    let address_id = null;
-    if (address) {
-      const newAddress = await createAddress({
-        address_line: address.addressLine,
-        city: address.city,
-        district: address.district,
-        division: address.division,
-        latitude: address.latitude,
-        longitude: address.longitude
-      });
-      address_id = newAddress.id;
+    let photoUrl = null;
+    if (req.file) {
+      photoUrl = req.file.path;
     }
 
     const familyMember = await createFamilyMember({
       user_id: req.user.id,
       name,
-      photo: null,
+      photo: photoUrl,
       date_of_birth,
-      gender,
+      gender: null,
       relationship,
       blood_group,
-      address_id,
-      emergency_contact_name: emergency_contact?.name,
-      emergency_contact_phone: emergency_contact?.phone,
+      address_id: null,
+      emergency_contact_name: null,
+      emergency_contact_phone: phone,
       medical_history: null,
       existing_conditions: null,
       allergies: null,
-      current_medications: null
+      current_medications: null,
+      description
     });
 
     res.created(familyMember, 'Family member added successfully');
@@ -45,6 +38,10 @@ exports.addFamilyMember = async (req, res) => {
 exports.listFamilyMembers = async (req, res) => {
   try {
     const familyMembers = await findByUserId(req.user.id);
+
+    if (!familyMembers || familyMembers.length === 0) {
+      return res.success(null, 'No family members added yet');
+    }
 
     res.success(familyMembers);
   } catch (error) {
@@ -73,7 +70,7 @@ exports.viewFamilyMember = async (req, res) => {
 exports.updateFamilyMember = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, relationship, phone, gender, date_of_birth, blood_group, address, emergency_contact } = req.body;
+    const { name, relationship, phone, blood_group, date_of_birth, description } = req.body;
     
     const familyMember = await findByUserIdAndId(req.user.id, id);
     
@@ -81,39 +78,26 @@ exports.updateFamilyMember = async (req, res) => {
       return res.notFound('Family member not found');
     }
 
-    let address_id = familyMember.address_id;
-    if (address && (!address_id || address.addressLine)) {
-      if (address_id) {
-        await updateAddress(address_id, {
-          address_line: address.addressLine,
-          city: address.city,
-          district: address.district,
-          division: address.division,
-          latitude: address.latitude,
-          longitude: address.longitude
-        });
-      } else {
-        const newAddress = await createAddress({
-          address_line: address.addressLine,
-          city: address.city,
-          district: address.district,
-          division: address.division,
-          latitude: address.latitude,
-          longitude: address.longitude
-        });
-        address_id = newAddress.id;
-      }
+    let photoUrl = familyMember.photo;
+    if (req.file) {
+      photoUrl = req.file.path;
     }
 
     const updatedMember = await updateFamilyMember(id, {
       name,
+      photo: photoUrl,
       date_of_birth,
-      gender,
+      gender: null,
       relationship,
       blood_group,
-      address_id,
-      emergency_contact_name: emergency_contact?.name,
-      emergency_contact_phone: emergency_contact?.phone
+      address_id: null,
+      emergency_contact_name: null,
+      emergency_contact_phone: phone,
+      medical_history: null,
+      existing_conditions: null,
+      allergies: null,
+      current_medications: null,
+      description
     });
 
     res.success(updatedMember, 'Family member updated successfully');

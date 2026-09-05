@@ -164,20 +164,46 @@
               }
             ],
             "body": {
-              "mode": "raw",
-              "raw": "{\n  \"name\": \"John Doe\",\n  \"email\": \"john@example.com\",\n  \"phone\": \"+8801234567890\",\n  \"language_preference\": \"en\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "name",
+                  "value": "John Doe",
+                  "type": "text"
+                },
+                {
+                  "key": "email",
+                  "value": "john@example.com",
+                  "type": "text"
+                },
+                {
+                  "key": "phone",
+                  "value": "+8801234567890",
+                  "type": "text"
+                },
+                {
+                  "key": "address",
+                  "value": "123 Main Street, Dhaka",
+                  "type": "text"
+                },
+                {
+                  "key": "date_of_birth",
+                  "value": "1990-01-01",
+                  "type": "text"
+                },
+                {
+                  "key": "profile_photo",
+                  "type": "file",
+                  "src": "/path/to/avatar.jpg"
                 }
-              }
+              ]
             },
             "url": {
               "raw": "{{baseUrl}}/user/profile",
               "host": ["{{baseUrl}}"],
               "path": ["user", "profile"]
             },
-            "description": "Update current user profile"
+            "description": "Update current user profile with optional photo upload"
           }
         },
         {
@@ -338,20 +364,51 @@
               }
             ],
             "body": {
-              "mode": "raw",
-              "raw": "{\n  \"name\": \"Jane Doe\",\n  \"relationship\": \"spouse\",\n  \"phone\": \"+8801234567891\",\n  \"gender\": \"female\",\n  \"date_of_birth\": \"1990-05-15\",\n  \"blood_group\": \"O+\",\n  \"address\": {\n    \"addressLine\": \"123 Main Street\",\n    \"city\": \"Dhaka\",\n    \"district\": \"Dhaka\",\n    \"division\": \"Dhaka\",\n    \"latitude\": 23.8103,\n    \"longitude\": 90.4125\n  },\n  \"emergency_contact\": {\n    \"name\": \"John Doe\",\n    \"phone\": \"+8801234567890\"\n  }\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "name",
+                  "value": "Jane Doe",
+                  "type": "text"
+                },
+                {
+                  "key": "relationship",
+                  "value": "spouse",
+                  "type": "text"
+                },
+                {
+                  "key": "phone",
+                  "value": "+8801234567891",
+                  "type": "text"
+                },
+                {
+                  "key": "blood_group",
+                  "value": "O+",
+                  "type": "text"
+                },
+                {
+                  "key": "date_of_birth",
+                  "value": "1990-05-15",
+                  "type": "text"
+                },
+                {
+                  "key": "description",
+                  "value": "Family member description",
+                  "type": "text"
+                },
+                {
+                  "key": "photo",
+                  "type": "file",
+                  "src": "/path/to/photo.jpg"
                 }
-              }
+              ]
             },
             "url": {
               "raw": "{{baseUrl}}/family-members",
               "host": ["{{baseUrl}}"],
               "path": ["family-members"]
             },
-            "description": "Add a new family member"
+            "description": "Add a new family member with photo upload to cloudinary"
           }
         },
         {
@@ -407,13 +464,44 @@
               }
             ],
             "body": {
-              "mode": "raw",
-              "raw": "{\n  \"name\": \"Jane Smith\",\n  \"relationship\": \"spouse\",\n  \"phone\": \"+8801234567891\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "name",
+                  "value": "Jane Smith",
+                  "type": "text"
+                },
+                {
+                  "key": "relationship",
+                  "value": "spouse",
+                  "type": "text"
+                },
+                {
+                  "key": "phone",
+                  "value": "+8801234567891",
+                  "type": "text"
+                },
+                {
+                  "key": "blood_group",
+                  "value": "O+",
+                  "type": "text"
+                },
+                {
+                  "key": "date_of_birth",
+                  "value": "1990-05-15",
+                  "type": "text"
+                },
+                {
+                  "key": "description",
+                  "value": "Updated description",
+                  "type": "text"
+                },
+                {
+                  "key": "photo",
+                  "type": "file",
+                  "src": "/path/to/photo.jpg"
                 }
-              }
+              ]
             },
             "url": {
               "raw": "{{baseUrl}}/family-members/:id",
@@ -426,7 +514,7 @@
                 }
               ]
             },
-            "description": "Update family member details"
+            "description": "Update family member details with optional photo upload"
           }
         },
         {

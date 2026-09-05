@@ -31,14 +31,22 @@ exports.getMyProfile = async (req, res) => {
 
 exports.updateMyProfile = async (req, res) => {
   try {
-    const { name, email, phone, language_preference, emergency_contact } = req.body;
+    const { name, email, phone, language_preference, emergency_contact, address, date_of_birth } = req.body;
+    
+    let profilePhoto = req.body.profile_photo;
+    if (req.file) {
+      profilePhoto = req.file.path;
+    }
     
     const updatedUser = await updateUser(req.user.id, {
       name,
       email,
       phone,
+      profile_photo: profilePhoto,
       language_preference,
-      emergency_contact
+      emergency_contact,
+      address,
+      date_of_birth
     });
 
     res.success({
@@ -49,7 +57,9 @@ exports.updateMyProfile = async (req, res) => {
       profile_photo: updatedUser.profile_photo,
       role: updatedUser.role,
       language_preference: updatedUser.language_preference,
-      emergency_contact: updatedUser.emergency_contact
+      emergency_contact: updatedUser.emergency_contact,
+      address: updatedUser.address,
+      date_of_birth: updatedUser.date_of_birth
     }, 'Profile updated successfully');
   } catch (error) {
     console.error('Update profile error:', error);

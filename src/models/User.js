@@ -35,15 +35,22 @@ const findById = async (id) => {
 };
 
 const updateUser = async (id, userData) => {
-  const { name, email, profile_photo, language_preference, emergency_contact, address } = userData;
+  const { name, email, phone, profile_photo, language_preference, emergency_contact, address, date_of_birth } = userData;
   const query = `
     UPDATE users 
-    SET name = $1, email = $2, profile_photo = $3, language_preference = $4, 
-        emergency_contact = $5, address = $6, updated_at = CURRENT_TIMESTAMP
-    WHERE id = $7
+    SET name = COALESCE($1, name), 
+        email = COALESCE($2, email), 
+        phone = COALESCE($3, phone),
+        profile_photo = COALESCE($4, profile_photo), 
+        language_preference = COALESCE($5, language_preference), 
+        emergency_contact = COALESCE($6, emergency_contact), 
+        address = COALESCE($7, address),
+        date_of_birth = COALESCE($8, date_of_birth),
+        updated_at = CURRENT_TIMESTAMP
+    WHERE id = $9
     RETURNING *
   `;
-  const values = [name, email, profile_photo, language_preference, emergency_contact, address, id];
+  const values = [name, email, phone, profile_photo, language_preference, emergency_contact, address, date_of_birth, id];
 
   const result = await pool.query(query, values);
   return result.rows[0];
