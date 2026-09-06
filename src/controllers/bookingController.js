@@ -16,6 +16,9 @@ const { createNotification } = require('../models/Notification');
 
 exports.createBooking = async (req, res) => {
   try {
+    console.log('Booking Request Body:', req.body);
+    console.log('Content-Type:', req.get('Content-Type'));
+    console.log('Is body empty?', Object.keys(req.body).length === 0);
     const {
       service_type, family_member_id, provider_type, provider_id,
       hospital_id, booking_date, start_time, duration_hours,
@@ -23,6 +26,7 @@ exports.createBooking = async (req, res) => {
     } = req.body;
 
     if (!service_type || !family_member_id || !booking_date || !start_time || !duration_hours) {
+      console.error('Validation failed:', { service_type, family_member_id, booking_date, start_time, duration_hours });
       return res.error('Service type, family member, booking date, start time, and duration are required');
     }
 

@@ -24,6 +24,11 @@ const runMigration = async () => {
     await pool.query('ALTER TABLE bookings ADD COLUMN IF NOT EXISTS patient_requirements TEXT');
     console.log('Booking columns added');
 
+    console.log('Updating service_type check constraint...');
+    await pool.query('ALTER TABLE bookings DROP CONSTRAINT IF EXISTS bookings_service_type_check');
+    await pool.query("ALTER TABLE bookings ADD CONSTRAINT bookings_service_type_check CHECK (service_type IN ('HOSPITAL_ASSISTANCE', 'HOME_CARE', 'NURSING'))");
+    console.log('Service type check constraint updated');
+
     console.log('Migration completed successfully');
     process.exit(0);
   } catch (error) {
