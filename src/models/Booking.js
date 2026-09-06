@@ -39,12 +39,15 @@ const findById = async (id) => {
   const query = `
     SELECT b.*, 
       u.name as customer_name, u.phone as customer_phone,
-      fm.name as family_member_name, fm.photo as family_member_photo,
-      h.name as hospital_name
+      fm.name as family_member_name, fm.photo as family_member_photo, fm.relationship as family_member_relationship, fm.blood_group as family_member_blood_group, fm.date_of_birth as family_member_dob,
+      h.name as hospital_name, h.address as hospital_address, h.phone as hospital_phone, h.photo as hospital_photo,
+      cp.bio as caregiver_bio, cp.education as caregiver_education, cp.experience_years as caregiver_experience, cp.rating as caregiver_rating, cp.profile_photo as caregiver_photo, cu.name as caregiver_name, cu.phone as caregiver_phone
     FROM bookings b
     JOIN users u ON b.user_id = u.id
     LEFT JOIN family_members fm ON b.family_member_id = fm.id
     LEFT JOIN hospitals h ON b.hospital_id = h.id
+    LEFT JOIN caregiver_profiles cp ON b.provider_id = cp.user_id AND b.provider_type = 'CAREGIVER'
+    LEFT JOIN users cu ON cp.user_id = cu.id
     WHERE b.id = $1
   `;
   const result = await pool.query(query, [id]);
@@ -70,11 +73,14 @@ const findByBookingNumber = async (booking_number) => {
 const findByUserId = async (user_id, filters = {}) => {
   let query = `
     SELECT b.*, 
-      fm.name as family_member_name,
-      h.name as hospital_name
+      fm.name as family_member_name, fm.photo as family_member_photo, fm.relationship as family_member_relationship, fm.blood_group as family_member_blood_group, fm.date_of_birth as family_member_dob,
+      h.name as hospital_name, h.address as hospital_address, h.phone as hospital_phone, h.photo as hospital_photo,
+      cp.bio as caregiver_bio, cp.education as caregiver_education, cp.experience_years as caregiver_experience, cp.rating as caregiver_rating, cp.profile_photo as caregiver_photo, cu.name as caregiver_name, cu.phone as caregiver_phone
     FROM bookings b
     LEFT JOIN family_members fm ON b.family_member_id = fm.id
     LEFT JOIN hospitals h ON b.hospital_id = h.id
+    LEFT JOIN caregiver_profiles cp ON b.provider_id = cp.user_id AND b.provider_type = 'CAREGIVER'
+    LEFT JOIN users cu ON cp.user_id = cu.id
     WHERE b.user_id = $1
   `;
   const values = [user_id];
@@ -114,8 +120,8 @@ const findByProviderId = async (provider_id, provider_type, filters = {}) => {
   let query = `
     SELECT b.*, 
       u.name as customer_name, u.phone as customer_phone,
-      fm.name as family_member_name, fm.photo as family_member_photo,
-      h.name as hospital_name, h.address as hospital_address
+      fm.name as family_member_name, fm.photo as family_member_photo, fm.relationship as family_member_relationship, fm.blood_group as family_member_blood_group, fm.date_of_birth as family_member_dob,
+      h.name as hospital_name, h.address as hospital_address, h.phone as hospital_phone, h.photo as hospital_photo
     FROM bookings b
     JOIN users u ON b.user_id = u.id
     LEFT JOIN family_members fm ON b.family_member_id = fm.id

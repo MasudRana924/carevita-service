@@ -1,14 +1,14 @@
 const pool = require('../config/database');
 
 const createCaregiverProfile = async (profileData) => {
-  const { user_id, bio, experience_years, service_areas, hourly_rate, education, blood_group, date_of_birth, profile_photo } = profileData;
+  const { user_id, bio, experience_years, service_areas, hourly_rate, education, blood_group, date_of_birth, profile_photo, gender } = profileData;
   
   const query = `
-    INSERT INTO caregiver_profiles (user_id, bio, experience_years, service_areas, hourly_rate, education, blood_group, date_of_birth, profile_photo)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+    INSERT INTO caregiver_profiles (user_id, bio, experience_years, service_areas, hourly_rate, education, blood_group, date_of_birth, profile_photo, gender)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
     RETURNING *
   `;
-  const values = [user_id, bio, experience_years, service_areas, hourly_rate, education, blood_group, date_of_birth, profile_photo];
+  const values = [user_id, bio, experience_years, service_areas, hourly_rate, education, blood_group, date_of_birth, profile_photo, gender];
 
   const result = await pool.query(query, values);
   return result.rows[0];
@@ -27,7 +27,7 @@ const getCaregiverProfileById = async (id) => {
 };
 
 const updateCaregiverProfile = async (id, updateData) => {
-  const { bio, experience_years, service_areas, hourly_rate, is_available, education, blood_group, date_of_birth, profile_photo } = updateData;
+  const { bio, experience_years, service_areas, hourly_rate, is_available, education, blood_group, date_of_birth, profile_photo, gender } = updateData;
   
   const query = `
     UPDATE caregiver_profiles 
@@ -40,11 +40,12 @@ const updateCaregiverProfile = async (id, updateData) => {
         blood_group = COALESCE($7, blood_group),
         date_of_birth = COALESCE($8, date_of_birth),
         profile_photo = COALESCE($9, profile_photo),
+        gender = COALESCE($10, gender),
         updated_at = CURRENT_TIMESTAMP
-    WHERE id = $10
+    WHERE id = $11
     RETURNING *
   `;
-  const values = [bio, experience_years, service_areas, hourly_rate, is_available, education, blood_group, date_of_birth, profile_photo, id];
+  const values = [bio, experience_years, service_areas, hourly_rate, is_available, education, blood_group, date_of_birth, profile_photo, gender, id];
 
   const result = await pool.query(query, values);
   return result.rows[0];
@@ -66,7 +67,7 @@ const updateVerificationStatus = async (id, status, note) => {
 };
 
 const searchCaregivers = async (filters = {}) => {
-  const { service_area, verification_status, min_rating, page = 1, limit = 20 } = filters;
+  const { service_area, name, gender, verification_status, min_rating, page = 1, limit = 20 } = filters;
   const offset = (page - 1) * limit;
   
   let query = `
@@ -78,10 +79,22 @@ const searchCaregivers = async (filters = {}) => {
   const values = [];
   let paramCount = 0;
 
+  if (name) {
+    paramCount++;
+    query += ` AND u.name ILIKE $${paramCount}`;
+    values.push(`%${name}%`);
+  }
+
   if (service_area) {
     paramCount++;
     query += ` AND $${paramCount} = ANY(service_areas)`;
     values.push(service_area);
+  }
+
+  if (gender) {
+    paramCount++;
+    query += ` AND gender = $${paramCount}`;
+    values.push(gender);
   }
 
   if (verification_status) {

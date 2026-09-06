@@ -629,6 +629,11 @@
                   "type": "text"
                 },
                 {
+                  "key": "gender",
+                  "value": "Female",
+                  "type": "text"
+                },
+                {
                   "key": "profile_photo",
                   "type": "file",
                   "src": "/path/to/photo.jpg"
@@ -640,7 +645,7 @@
               "host": ["{{baseUrl}}"],
               "path": ["caregiver", "profile"]
             },
-            "description": "Create caregiver profile with education, blood group, date of birth, and profile photo upload"
+            "description": "Create caregiver profile with education, blood group, date of birth, gender, and profile photo upload"
           }
         },
         {
@@ -710,6 +715,11 @@
                   "type": "text"
                 },
                 {
+                  "key": "gender",
+                  "value": "Female",
+                  "type": "text"
+                },
+                {
                   "key": "profile_photo",
                   "type": "file",
                   "src": "/path/to/photo.jpg"
@@ -721,7 +731,7 @@
               "host": ["{{baseUrl}}"],
               "path": ["caregiver", "profile"]
             },
-            "description": "Update caregiver profile with education, blood group, date of birth, and profile photo upload"
+            "description": "Update caregiver profile with education, blood group, date of birth, gender, and profile photo upload"
           }
         },
         {
@@ -816,40 +826,55 @@
           "name": "Search Caregivers",
           "request": {
             "method": "GET",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{token}}"
-              }
-            ],
+            "header": [],
             "url": {
-              "raw": "{{baseUrl}}/caregiver/search?service_area=Dhaka&verification_status=APPROVED&min_rating=4&page=1&limit=20",
+              "raw": "{{baseUrl}}/caregiver/search?page=1&limit=20",
               "host": ["{{baseUrl}}"],
               "path": ["caregiver", "search"],
               "query": [
                 {
-                  "key": "service_area",
-                  "value": "Dhaka"
-                },
-                {
-                  "key": "verification_status",
-                  "value": "APPROVED"
-                },
-                {
-                  "key": "min_rating",
-                  "value": "4"
-                },
-                {
                   "key": "page",
-                  "value": "1"
+                  "value": "1",
+                  "description": "Page number (default: 1)"
                 },
                 {
                   "key": "limit",
-                  "value": "20"
+                  "value": "20",
+                  "description": "Items per page (default: 20)"
+                },
+                {
+                  "key": "name",
+                  "value": "",
+                  "description": "Search by caregiver name (optional)",
+                  "disabled": true
+                },
+                {
+                  "key": "service_area",
+                  "value": "",
+                  "description": "Filter by service area/location (optional)",
+                  "disabled": true
+                },
+                {
+                  "key": "gender",
+                  "value": "",
+                  "description": "Filter by gender (Male/Female/Other) (optional)",
+                  "disabled": true
+                },
+                {
+                  "key": "verification_status",
+                  "value": "",
+                  "description": "Filter by verification status (optional)",
+                  "disabled": true
+                },
+                {
+                  "key": "min_rating",
+                  "value": "",
+                  "description": "Filter by minimum rating (optional)",
+                  "disabled": true
                 }
               ]
             },
-            "description": "Search for caregivers with filters"
+            "description": "Search caregivers - public API. All filters are optional. Returns all caregivers by default."
           }
         },
         {

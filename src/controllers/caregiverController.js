@@ -6,7 +6,7 @@ const { findByProviderId: findReviewsByProviderId, getProviderAverageRating } = 
 
 exports.createProfile = async (req, res) => {
   try {
-    const { bio, experience_years, service_areas, hourly_rate, education, blood_group, date_of_birth } = req.body;
+    const { bio, experience_years, service_areas, hourly_rate, education, blood_group, date_of_birth, gender } = req.body;
     
     const existingProfile = await getCaregiverProfileByUserId(req.user.id);
     if (existingProfile) {
@@ -24,7 +24,8 @@ exports.createProfile = async (req, res) => {
       education,
       blood_group,
       date_of_birth,
-      profile_photo: profilePhoto
+      profile_photo: profilePhoto,
+      gender
     });
 
     res.created(profile, 'Caregiver profile created successfully');
@@ -51,7 +52,7 @@ exports.getMyProfile = async (req, res) => {
 
 exports.updateMyProfile = async (req, res) => {
   try {
-    const { bio, experience_years, service_areas, hourly_rate, is_available, education, blood_group, date_of_birth } = req.body;
+    const { bio, experience_years, service_areas, hourly_rate, is_available, education, blood_group, date_of_birth, gender } = req.body;
     
     const profile = await getCaregiverProfileByUserId(req.user.id);
     if (!profile) {
@@ -69,7 +70,8 @@ exports.updateMyProfile = async (req, res) => {
       education,
       blood_group,
       date_of_birth,
-      profile_photo: profilePhoto
+      profile_photo: profilePhoto,
+      gender
     });
 
     res.success(updatedProfile, 'Profile updated successfully');
@@ -147,10 +149,12 @@ exports.setMyAvailability = async (req, res) => {
 
 exports.searchCaregivers = async (req, res) => {
   try {
-    const { service_area, verification_status, min_rating, page = 1, limit = 20 } = req.query;
+    const { service_area, name, gender, verification_status, min_rating, page = 1, limit = 20 } = req.query;
     
     const caregivers = await searchCaregivers({
       service_area,
+      name,
+      gender,
       verification_status,
       min_rating,
       page: parseInt(page),
