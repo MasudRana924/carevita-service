@@ -1,11 +1,12 @@
 const express = require('express');
 const router = express.Router();
 const { authenticate, authorize } = require('../middleware/auth');
+const upload = require('../middleware/upload');
 const caregiverController = require('../controllers/caregiverController');
 
-router.post('/profile', authenticate, authorize('CAREGIVER'), caregiverController.createProfile);
+router.post('/profile', authenticate, authorize('CAREGIVER'), upload.single('profile_photo'), caregiverController.createProfile);
 router.get('/profile', authenticate, authorize('CAREGIVER'), caregiverController.getMyProfile);
-router.put('/profile', authenticate, authorize('CAREGIVER'), caregiverController.updateMyProfile);
+router.put('/profile', authenticate, authorize('CAREGIVER'), upload.single('profile_photo'), caregiverController.updateMyProfile);
 router.post('/documents', authenticate, authorize('CAREGIVER'), caregiverController.submitDocument);
 router.get('/availability', authenticate, authorize('CAREGIVER'), caregiverController.getMyAvailability);
 router.post('/availability', authenticate, authorize('CAREGIVER'), caregiverController.setMyAvailability);

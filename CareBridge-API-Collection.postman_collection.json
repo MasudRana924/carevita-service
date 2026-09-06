@@ -591,20 +591,56 @@
               }
             ],
             "body": {
-              "mode": "raw",
-              "raw": "{\n  \"bio\": \"Experienced caregiver with 5 years of experience\",\n  \"experience_years\": 5,\n  \"service_areas\": [\"Dhaka\", \"Chittagong\"],\n  \"hourly_rate\": 500,\n  \"education\": \"Bachelor in Nursing\",\n  \"blood_group\": \"O+\",\n  \"date_of_birth\": \"1990-01-01\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "bio",
+                  "value": "Experienced caregiver with 5 years of experience",
+                  "type": "text"
+                },
+                {
+                  "key": "experience_years",
+                  "value": "5",
+                  "type": "text"
+                },
+                {
+                  "key": "service_areas",
+                  "value": "[\"Dhaka\", \"Chittagong\"]",
+                  "type": "text"
+                },
+                {
+                  "key": "hourly_rate",
+                  "value": "500",
+                  "type": "text"
+                },
+                {
+                  "key": "education",
+                  "value": "Bachelor in Nursing",
+                  "type": "text"
+                },
+                {
+                  "key": "blood_group",
+                  "value": "O+",
+                  "type": "text"
+                },
+                {
+                  "key": "date_of_birth",
+                  "value": "1990-01-01",
+                  "type": "text"
+                },
+                {
+                  "key": "profile_photo",
+                  "type": "file",
+                  "src": "/path/to/photo.jpg"
                 }
-              }
+              ]
             },
             "url": {
               "raw": "{{baseUrl}}/caregiver/profile",
               "host": ["{{baseUrl}}"],
               "path": ["caregiver", "profile"]
             },
-            "description": "Create caregiver profile with education, blood group, and date of birth"
+            "description": "Create caregiver profile with education, blood group, date of birth, and profile photo upload"
           }
         },
         {
@@ -636,20 +672,56 @@
               }
             ],
             "body": {
-              "mode": "raw",
-              "raw": "{\n  \"bio\": \"Updated bio\",\n  \"experience_years\": 6,\n  \"hourly_rate\": 600,\n  \"is_available\": true,\n  \"education\": \"Bachelor in Nursing\",\n  \"blood_group\": \"O+\",\n  \"date_of_birth\": \"1990-01-01\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "bio",
+                  "value": "Updated bio",
+                  "type": "text"
+                },
+                {
+                  "key": "experience_years",
+                  "value": "6",
+                  "type": "text"
+                },
+                {
+                  "key": "hourly_rate",
+                  "value": "600",
+                  "type": "text"
+                },
+                {
+                  "key": "is_available",
+                  "value": "true",
+                  "type": "text"
+                },
+                {
+                  "key": "education",
+                  "value": "Bachelor in Nursing",
+                  "type": "text"
+                },
+                {
+                  "key": "blood_group",
+                  "value": "O+",
+                  "type": "text"
+                },
+                {
+                  "key": "date_of_birth",
+                  "value": "1990-01-01",
+                  "type": "text"
+                },
+                {
+                  "key": "profile_photo",
+                  "type": "file",
+                  "src": "/path/to/photo.jpg"
                 }
-              }
+              ]
             },
             "url": {
               "raw": "{{baseUrl}}/caregiver/profile",
               "host": ["{{baseUrl}}"],
               "path": ["caregiver", "profile"]
             },
-            "description": "Update caregiver profile with education, blood group, and date of birth"
+            "description": "Update caregiver profile with education, blood group, date of birth, and profile photo upload"
           }
         },
         {

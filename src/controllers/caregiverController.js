@@ -13,6 +13,8 @@ exports.createProfile = async (req, res) => {
       return res.error('Profile already exists', [], 409);
     }
 
+    const profilePhoto = req.file ? req.file.path : null;
+
     const profile = await createCaregiverProfile({
       user_id: req.user.id,
       bio,
@@ -21,7 +23,8 @@ exports.createProfile = async (req, res) => {
       hourly_rate,
       education,
       blood_group,
-      date_of_birth
+      date_of_birth,
+      profile_photo: profilePhoto
     });
 
     res.created(profile, 'Caregiver profile created successfully');
@@ -55,6 +58,8 @@ exports.updateMyProfile = async (req, res) => {
       return res.notFound('Profile not found');
     }
 
+    const profilePhoto = req.file ? req.file.path : profile.profile_photo;
+
     const updatedProfile = await updateCaregiverProfile(profile.id, {
       bio,
       experience_years,
@@ -63,7 +68,8 @@ exports.updateMyProfile = async (req, res) => {
       is_available,
       education,
       blood_group,
-      date_of_birth
+      date_of_birth,
+      profile_photo: profilePhoto
     });
 
     res.success(updatedProfile, 'Profile updated successfully');

@@ -1,14 +1,14 @@
 const pool = require('../config/database');
 
 const createCaregiverProfile = async (profileData) => {
-  const { user_id, bio, experience_years, service_areas, hourly_rate, education, blood_group, date_of_birth } = profileData;
+  const { user_id, bio, experience_years, service_areas, hourly_rate, education, blood_group, date_of_birth, profile_photo } = profileData;
   
   const query = `
-    INSERT INTO caregiver_profiles (user_id, bio, experience_years, service_areas, hourly_rate, education, blood_group, date_of_birth)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+    INSERT INTO caregiver_profiles (user_id, bio, experience_years, service_areas, hourly_rate, education, blood_group, date_of_birth, profile_photo)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
     RETURNING *
   `;
-  const values = [user_id, bio, experience_years, service_areas, hourly_rate, education, blood_group, date_of_birth];
+  const values = [user_id, bio, experience_years, service_areas, hourly_rate, education, blood_group, date_of_birth, profile_photo];
 
   const result = await pool.query(query, values);
   return result.rows[0];
@@ -27,7 +27,7 @@ const getCaregiverProfileById = async (id) => {
 };
 
 const updateCaregiverProfile = async (id, updateData) => {
-  const { bio, experience_years, service_areas, hourly_rate, is_available, education, blood_group, date_of_birth } = updateData;
+  const { bio, experience_years, service_areas, hourly_rate, is_available, education, blood_group, date_of_birth, profile_photo } = updateData;
   
   const query = `
     UPDATE caregiver_profiles 
@@ -39,11 +39,12 @@ const updateCaregiverProfile = async (id, updateData) => {
         education = COALESCE($6, education),
         blood_group = COALESCE($7, blood_group),
         date_of_birth = COALESCE($8, date_of_birth),
+        profile_photo = COALESCE($9, profile_photo),
         updated_at = CURRENT_TIMESTAMP
-    WHERE id = $9
+    WHERE id = $10
     RETURNING *
   `;
-  const values = [bio, experience_years, service_areas, hourly_rate, is_available, education, blood_group, date_of_birth, id];
+  const values = [bio, experience_years, service_areas, hourly_rate, is_available, education, blood_group, date_of_birth, profile_photo, id];
 
   const result = await pool.query(query, values);
   return result.rows[0];
