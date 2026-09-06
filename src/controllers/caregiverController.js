@@ -6,7 +6,7 @@ const { findByProviderId: findReviewsByProviderId, getProviderAverageRating } = 
 
 exports.createProfile = async (req, res) => {
   try {
-    const { bio, experience_years, service_areas, hourly_rate } = req.body;
+    const { bio, experience_years, service_areas, hourly_rate, education, blood_group, date_of_birth } = req.body;
     
     const existingProfile = await getCaregiverProfileByUserId(req.user.id);
     if (existingProfile) {
@@ -18,7 +18,10 @@ exports.createProfile = async (req, res) => {
       bio,
       experience_years,
       service_areas,
-      hourly_rate
+      hourly_rate,
+      education,
+      blood_group,
+      date_of_birth
     });
 
     res.created(profile, 'Caregiver profile created successfully');
@@ -45,17 +48,25 @@ exports.getMyProfile = async (req, res) => {
 
 exports.updateMyProfile = async (req, res) => {
   try {
-    const { bio, experience_years, service_areas, hourly_rate, is_available } = req.body;
+    const { bio, experience_years, service_areas, hourly_rate, is_available, education, blood_group, date_of_birth } = req.body;
     
-    const profile = await updateCaregiverProfile(req.user.id, {
+    const profile = await getCaregiverProfileByUserId(req.user.id);
+    if (!profile) {
+      return res.notFound('Profile not found');
+    }
+
+    const updatedProfile = await updateCaregiverProfile(profile.id, {
       bio,
       experience_years,
       service_areas,
       hourly_rate,
-      is_available
+      is_available,
+      education,
+      blood_group,
+      date_of_birth
     });
 
-    res.success(profile, 'Profile updated successfully');
+    res.success(updatedProfile, 'Profile updated successfully');
   } catch (error) {
     console.error('Update caregiver profile error:', error);
     res.serverError('Failed to update caregiver profile');

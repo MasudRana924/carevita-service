@@ -253,6 +253,31 @@ exports.getAllPayments = async (req, res) => {
   }
 };
 
+exports.createHospital = async (req, res) => {
+  try {
+    const { name, address, phone, email, location_lat, location_long, city, district, type, details } = req.body;
+    
+    let photoUrl = null;
+    if (req.file) {
+      photoUrl = req.file.path;
+    }
+
+    const query = `
+      INSERT INTO hospitals (name, address, phone, email, location_lat, location_long, city, district, type, photo, details)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      RETURNING *
+    `;
+    const values = [name, address, phone, email, location_lat, location_long, city, district, type, photoUrl, details];
+
+    const result = await pool.query(query, values);
+
+    res.created(result.rows[0], 'Hospital created successfully');
+  } catch (error) {
+    console.error('Create hospital error:', error);
+    res.serverError('Failed to create hospital');
+  }
+};
+
 exports.getAllHospitals = async (req, res) => {
   try {
     const { district, page = 1, limit = 20 } = req.query;

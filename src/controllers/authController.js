@@ -147,16 +147,39 @@ exports.register = async (req, res) => {
 
     const emailSent = await sendEmailOTP(email, otp);
 
-    res.created({
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        is_verified: user.is_verified
-      },
-      expiresAt
-    }, 'Registration successful. Please verify your email with the OTP sent to your email address. OTP expires in 1 minute.');
+    if (role === 'ADMIN') {
+      res.created({
+        user: {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          is_verified: user.is_verified
+        }
+      }, 'Admin registration successful. Please verify your email with the OTP sent to your email address. OTP expires in 1 minute.');
+    } else if (role === 'CAREGIVER') {
+      res.created({
+        user: {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          is_verified: user.is_verified
+        },
+        expiresAt
+      }, 'Caregiver registration successful. Please verify your email with the OTP sent to your email address. OTP expires in 1 minute.');
+    } else {
+      res.created({
+        user: {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          is_verified: user.is_verified
+        },
+        expiresAt
+      }, 'Registration successful. Please verify your email with the OTP sent to your email address. OTP expires in 1 minute.');
+    }
   } catch (error) {
     console.error('Registration error:', error);
     res.serverError('Registration failed');

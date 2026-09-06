@@ -65,13 +65,13 @@
           }
         },
         {
-          "name": "Register",
+          "name": "Register User",
           "request": {
             "method": "POST",
             "header": [],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"email\": \"user@example.com\",\n  \"password\": \"password123\",\n  \"name\": \"John Doe\"\n}",
+              "raw": "{\n  \"email\": \"user@example.com\",\n  \"password\": \"password123\",\n  \"name\": \"John Doe\",\n  \"role\": \"USER\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -83,7 +83,51 @@
               "host": ["{{baseUrl}}"],
               "path": ["auth", "register"]
             },
-            "description": "Register a new user"
+            "description": "Register a new user. Role can be USER, CAREGIVER, or ADMIN"
+          }
+        },
+        {
+          "name": "Register Caregiver",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"caregiver@example.com\",\n  \"password\": \"password123\",\n  \"name\": \"Jane Smith\",\n  \"role\": \"CAREGIVER\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/register",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "register"]
+            },
+            "description": "Register a new caregiver"
+          }
+        },
+        {
+          "name": "Register Admin",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@example.com\",\n  \"password\": \"password123\",\n  \"name\": \"Admin User\",\n  \"role\": \"ADMIN\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/register",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "register"]
+            },
+            "description": "Register a new admin"
           }
         },
         {
@@ -548,7 +592,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"bio\": \"Experienced caregiver with 5 years of experience\",\n  \"experience_years\": 5,\n  \"service_areas\": [\"Dhaka\", \"Chittagong\"],\n  \"hourly_rate\": 500\n}",
+              "raw": "{\n  \"bio\": \"Experienced caregiver with 5 years of experience\",\n  \"experience_years\": 5,\n  \"service_areas\": [\"Dhaka\", \"Chittagong\"],\n  \"hourly_rate\": 500,\n  \"education\": \"Bachelor in Nursing\",\n  \"blood_group\": \"O+\",\n  \"date_of_birth\": \"1990-01-01\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -560,7 +604,7 @@
               "host": ["{{baseUrl}}"],
               "path": ["caregiver", "profile"]
             },
-            "description": "Create caregiver profile"
+            "description": "Create caregiver profile with education, blood group, and date of birth"
           }
         },
         {
@@ -593,7 +637,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"bio\": \"Updated bio\",\n  \"experience_years\": 6,\n  \"hourly_rate\": 600,\n  \"is_available\": true\n}",
+              "raw": "{\n  \"bio\": \"Updated bio\",\n  \"experience_years\": 6,\n  \"hourly_rate\": 600,\n  \"is_available\": true,\n  \"education\": \"Bachelor in Nursing\",\n  \"blood_group\": \"O+\",\n  \"date_of_birth\": \"1990-01-01\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -605,7 +649,7 @@
               "host": ["{{baseUrl}}"],
               "path": ["caregiver", "profile"]
             },
-            "description": "Update caregiver profile"
+            "description": "Update caregiver profile with education, blood group, and date of birth"
           }
         },
         {
@@ -1962,6 +2006,84 @@
               ]
             },
             "description": "Get all payments with filters"
+          }
+        },
+        {
+          "name": "Create Hospital",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "name",
+                  "value": "Dhaka Medical College Hospital",
+                  "type": "text"
+                },
+                {
+                  "key": "address",
+                  "value": "123 Medical Road, Dhaka",
+                  "type": "text"
+                },
+                {
+                  "key": "phone",
+                  "value": "+8801234567890",
+                  "type": "text"
+                },
+                {
+                  "key": "email",
+                  "value": "info@dmch.gov.bd",
+                  "type": "text"
+                },
+                {
+                  "key": "location_lat",
+                  "value": "23.8103",
+                  "type": "text"
+                },
+                {
+                  "key": "location_long",
+                  "value": "90.4125",
+                  "type": "text"
+                },
+                {
+                  "key": "city",
+                  "value": "Dhaka",
+                  "type": "text"
+                },
+                {
+                  "key": "district",
+                  "value": "Dhaka",
+                  "type": "text"
+                },
+                {
+                  "key": "type",
+                  "value": "Government",
+                  "type": "text"
+                },
+                {
+                  "key": "details",
+                  "value": "A leading government hospital in Dhaka",
+                  "type": "text"
+                },
+                {
+                  "key": "photo",
+                  "type": "file",
+                  "src": "/path/to/hospital.jpg"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/admin/hospitals",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "hospitals"]
+            },
+            "description": "Create a new hospital with photo upload (admin only)"
           }
         },
         {
