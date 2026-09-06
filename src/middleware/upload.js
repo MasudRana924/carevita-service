@@ -20,10 +20,12 @@ const upload = multer({
     fileSize: 5 * 1024 * 1024, // 5MB
   },
   fileFilter: (req, file, cb) => {
+    console.log('File received:', { fieldname: file.fieldname, originalname: file.originalname, mimetype: file.mimetype });
     const allowedTypes = ['image/jpeg', 'image/png', 'image/jpg', 'application/pdf'];
     if (allowedTypes.includes(file.mimetype)) {
       cb(null, true);
     } else {
+      console.error('Rejected file type:', file.mimetype);
       cb(new Error('Invalid file type. Only JPEG, PNG, and PDF allowed.'), false);
     }
   },
