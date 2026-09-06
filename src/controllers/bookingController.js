@@ -19,7 +19,7 @@ exports.createBooking = async (req, res) => {
     const {
       service_type, family_member_id, provider_type, provider_id,
       hospital_id, booking_date, start_time, duration_hours,
-      pickup_location, destination, notes
+      pickup_location, patient_requirements, notes
     } = req.body;
 
     if (!service_type || !family_member_id || !booking_date || !start_time || !duration_hours) {
@@ -69,6 +69,7 @@ exports.createBooking = async (req, res) => {
       duration_hours,
       pickup_address_id,
       destination_address_id: null,
+      patient_requirements,
       notes,
       service_charge,
       platform_fee,

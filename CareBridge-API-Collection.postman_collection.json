@@ -1291,7 +1291,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"service_type\": \"HOME_CARE\",\n  \"family_member_id\": 1,\n  \"provider_type\": \"CAREGIVER\",\n  \"provider_id\": 2,\n  \"booking_date\": \"2024-01-15\",\n  \"start_time\": \"09:00\",\n  \"duration_hours\": 4,\n  \"pickup_location\": {\n    \"address\": \"123 Main Street\",\n    \"city\": \"Dhaka\",\n    \"district\": \"Dhaka\",\n    \"division\": \"Dhaka\",\n    \"latitude\": 23.8103,\n    \"longitude\": 90.4125\n  },\n  \"notes\": \"Patient needs assistance with daily activities\"\n}",
+              "raw": "{\n  \"service_type\": \"HOME_CARE\",\n  \"family_member_id\": 1,\n  \"provider_type\": \"CAREGIVER\",\n  \"provider_id\": 2,\n  \"hospital_id\": 1,\n  \"booking_date\": \"2024-01-15\",\n  \"start_time\": \"09:00\",\n  \"duration_hours\": 4,\n  \"pickup_location\": {\n    \"address\": \"123 Main Street\",\n    \"city\": \"Dhaka\",\n    \"district\": \"Dhaka\",\n    \"division\": \"Dhaka\",\n    \"latitude\": 23.8103,\n    \"longitude\": 90.4125\n  },\n  \"patient_requirements\": \"Patient needs assistance with daily activities, medication management, and mobility support\",\n  \"notes\": \"Additional notes for caregiver\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -1303,7 +1303,7 @@
               "host": ["{{baseUrl}}"],
               "path": ["bookings"]
             },
-            "description": "Create a new booking"
+            "description": "Create a new booking with family member, caregiver, hospital, date, time, pickup location, and patient requirements"
           }
         },
         {

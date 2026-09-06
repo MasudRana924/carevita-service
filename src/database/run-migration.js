@@ -19,6 +19,10 @@ const runMigration = async () => {
     await pool.query('ALTER TABLE hospitals ADD COLUMN IF NOT EXISTS details TEXT');
     console.log('Hospital columns added');
 
+    console.log('Adding booking columns...');
+    await pool.query('ALTER TABLE bookings ADD COLUMN IF NOT EXISTS patient_requirements TEXT');
+    console.log('Booking columns added');
+
     console.log('Migration completed successfully');
     process.exit(0);
   } catch (error) {

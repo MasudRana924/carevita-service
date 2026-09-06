@@ -5,7 +5,7 @@ const createBooking = async (bookingData) => {
   const {
     user_id, family_member_id, service_type, provider_type, provider_id,
     hospital_id, booking_date, start_time, end_time, duration_hours,
-    pickup_address_id, destination_address_id, notes, service_charge,
+    pickup_address_id, destination_address_id, patient_requirements, notes, service_charge,
     platform_fee, discount, total_amount, advance_percentage,
     advance_amount, remaining_amount
   } = bookingData;
@@ -16,17 +16,17 @@ const createBooking = async (bookingData) => {
     INSERT INTO bookings (
       booking_number, user_id, family_member_id, service_type, provider_type, provider_id,
       hospital_id, booking_date, start_time, end_time, duration_hours,
-      pickup_address_id, destination_address_id, notes, service_charge,
+      pickup_address_id, destination_address_id, patient_requirements, notes, service_charge,
       platform_fee, discount, total_amount, advance_percentage,
       advance_amount, remaining_amount, status
     )
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, 'PENDING_PAYMENT')
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, 'PENDING_PAYMENT')
     RETURNING *
   `;
   const values = [
     booking_number, user_id, family_member_id, service_type, provider_type, provider_id,
     hospital_id, booking_date, start_time, end_time, duration_hours,
-    pickup_address_id, destination_address_id, notes, service_charge,
+    pickup_address_id, destination_address_id, patient_requirements, notes, service_charge,
     platform_fee, discount, total_amount, advance_percentage,
     advance_amount, remaining_amount
   ];
