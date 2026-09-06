@@ -16,9 +16,6 @@ const { createNotification } = require('../models/Notification');
 
 exports.createBooking = async (req, res) => {
   try {
-    console.log('Booking Request Body:', req.body);
-    console.log('Content-Type:', req.get('Content-Type'));
-    console.log('Is body empty?', Object.keys(req.body).length === 0);
     const {
       service_type, family_member_id, provider_type, provider_id,
       hospital_id, booking_date, start_time, duration_hours,
@@ -26,7 +23,6 @@ exports.createBooking = async (req, res) => {
     } = req.body;
 
     if (!service_type || !family_member_id || !booking_date || !start_time || !duration_hours) {
-      console.error('Validation failed:', { service_type, family_member_id, booking_date, start_time, duration_hours });
       return res.error('Service type, family member, booking date, start time, and duration are required');
     }
 
@@ -138,7 +134,73 @@ exports.getBooking = async (req, res) => {
 
     const history = await getStatusHistory(id);
 
-    res.success({ ...booking, history });
+    // Structure the response with nested objects
+    const structuredBooking = {
+      id: booking.id,
+      booking_number: booking.booking_number,
+      user_id: booking.user_id,
+      service_type: booking.service_type,
+      provider_type: booking.provider_type,
+      provider_id: booking.provider_id,
+      booking_date: booking.booking_date,
+      start_time: booking.start_time,
+      end_time: booking.end_time,
+      duration_hours: booking.duration_hours,
+      pickup_address_id: booking.pickup_address_id,
+      destination_address_id: booking.destination_address_id,
+      notes: booking.notes,
+      service_charge: booking.service_charge,
+      platform_fee: booking.platform_fee,
+      discount: booking.discount,
+      total_amount: booking.total_amount,
+      advance_percentage: booking.advance_percentage,
+      advance_amount: booking.advance_amount,
+      remaining_amount: booking.remaining_amount,
+      status: booking.status,
+      payment_status: booking.payment_status,
+      payment_method: booking.payment_method,
+      cancellation_reason: booking.cancellation_reason,
+      cancelled_by: booking.cancelled_by,
+      cancelled_at: booking.cancelled_at,
+      completed_at: booking.completed_at,
+      created_at: booking.created_at,
+      updated_at: booking.updated_at,
+      patient_requirements: booking.patient_requirements,
+      customer: {
+        name: booking.customer_name,
+        phone: booking.customer_phone
+      },
+      family_member: {
+        id: booking.family_member_id,
+        name: booking.family_member_name,
+        photo: booking.family_member_photo,
+        relationship: booking.family_member_relationship,
+        blood_group: booking.family_member_blood_group,
+        date_of_birth: booking.family_member_dob
+      },
+      hospital: booking.hospital_id ? {
+        id: booking.hospital_id,
+        name: booking.hospital_name,
+        address: booking.hospital_address,
+        phone: booking.hospital_phone,
+        photo: booking.hospital_photo
+      } : null,
+      caregiver: booking.provider_type === 'CAREGIVER' && booking.provider_id ? {
+        id: booking.provider_id,
+        name: booking.caregiver_name,
+        phone: booking.caregiver_phone,
+        email: booking.caregiver_email,
+        bio: booking.caregiver_bio,
+        education: booking.caregiver_education,
+        experience_years: booking.caregiver_experience,
+        rating: booking.caregiver_rating,
+        profile_photo: booking.caregiver_photo,
+        gender: booking.caregiver_gender
+      } : null,
+      history
+    };
+
+    res.success(structuredBooking);
   } catch (error) {
     console.error('Get booking error:', error);
     res.serverError('Failed to fetch booking');
