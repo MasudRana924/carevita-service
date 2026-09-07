@@ -2,10 +2,10 @@ const pool = require('../config/database');
 
 const createCaregiverProfile = async (profileData) => {
   const { user_id, bio, experience_years, service_areas, hourly_rate, education, blood_group, date_of_birth, profile_photo, gender } = profileData;
-  
+
   const query = `
-    INSERT INTO caregiver_profiles (user_id, bio, experience_years, service_areas, hourly_rate, education, blood_group, date_of_birth, profile_photo, gender)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+    INSERT INTO caregiver_profiles (user_id, bio, experience_years, service_areas, hourly_rate, education, blood_group, date_of_birth, profile_photo, gender, ekyc_status)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, false)
     RETURNING *
   `;
   const values = [user_id, bio, experience_years, service_areas, hourly_rate, education, blood_group, date_of_birth, profile_photo, gender];
@@ -27,10 +27,10 @@ const getCaregiverProfileById = async (id) => {
 };
 
 const updateCaregiverProfile = async (id, updateData) => {
-  const { bio, experience_years, service_areas, hourly_rate, is_available, education, blood_group, date_of_birth, profile_photo, gender } = updateData;
-  
+  const { bio, experience_years, service_areas, hourly_rate, is_available, education, blood_group, date_of_birth, profile_photo, gender, ekyc_status, ekyc_verified_at, ekyc_reference_id } = updateData;
+
   const query = `
-    UPDATE caregiver_profiles 
+    UPDATE caregiver_profiles
     SET bio = COALESCE($1, bio),
         experience_years = COALESCE($2, experience_years),
         service_areas = COALESCE($3, service_areas),
@@ -41,11 +41,14 @@ const updateCaregiverProfile = async (id, updateData) => {
         date_of_birth = COALESCE($8, date_of_birth),
         profile_photo = COALESCE($9, profile_photo),
         gender = COALESCE($10, gender),
+        ekyc_status = COALESCE($11, ekyc_status),
+        ekyc_verified_at = COALESCE($12, ekyc_verified_at),
+        ekyc_reference_id = COALESCE($13, ekyc_reference_id),
         updated_at = CURRENT_TIMESTAMP
-    WHERE id = $11
+    WHERE id = $14
     RETURNING *
   `;
-  const values = [bio, experience_years, service_areas, hourly_rate, is_available, education, blood_group, date_of_birth, profile_photo, gender, id];
+  const values = [bio, experience_years, service_areas, hourly_rate, is_available, education, blood_group, date_of_birth, profile_photo, gender, ekyc_status, ekyc_verified_at, ekyc_reference_id, id];
 
   const result = await pool.query(query, values);
   return result.rows[0];

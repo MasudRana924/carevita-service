@@ -12,6 +12,9 @@ const runMigration = async () => {
     await pool.query('ALTER TABLE caregiver_profiles ADD COLUMN IF NOT EXISTS date_of_birth DATE');
     await pool.query('ALTER TABLE caregiver_profiles ADD COLUMN IF NOT EXISTS profile_photo TEXT');
     await pool.query('ALTER TABLE caregiver_profiles ADD COLUMN IF NOT EXISTS gender VARCHAR(20)');
+    await pool.query('ALTER TABLE caregiver_profiles ADD COLUMN IF NOT EXISTS ekyc_status BOOLEAN DEFAULT false');
+    await pool.query('ALTER TABLE caregiver_profiles ADD COLUMN IF NOT EXISTS ekyc_verified_at TIMESTAMP');
+    await pool.query('ALTER TABLE caregiver_profiles ADD COLUMN IF NOT EXISTS ekyc_reference_id TEXT');
     console.log('Caregiver profile columns added');
 
     console.log('Adding hospital columns...');
