@@ -2,6 +2,8 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
+const swaggerUi = require('swagger-ui-express');
+const swaggerSpec = require('./config/swagger');
 const { apiLimiter } = require('./middleware/rateLimiter');
 const errorHandler = require('./middleware/errorHandler');
 const responseHandler = require('./middleware/responseHandler');
@@ -9,15 +11,22 @@ const routes = require('./routes');
 const pool = require('./config/database');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 8000;
 
-// Security middleware
-app.use(helmet());
+// Security middleware (CSP relaxed so Swagger UI assets load)
+app.use(helmet({
+  contentSecurityPolicy: false,
+  crossOriginEmbedderPolicy: false,
+  crossOriginResourcePolicy: { policy: 'cross-origin' }
+}));
 
-// CORS configuration
+// CORS — origin:true reflects the request Origin (works with credentials)
+// Note: origin:'*' + credentials:true is invalid and browsers block it
 app.use(cors({
-  origin: '*',
-  credentials: true
+  origin: true,
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 }));
 
 // Body parsing middleware
@@ -26,6 +35,31 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Response handler middleware
 app.use(responseHandler);
+
+// Dynamic OpenAPI JSON (correct host/port for Try it out)
+app.get('/api-docs.json', (req, res) => {
+  const host = req.get('host');
+  const protocol = req.protocol;
+  res.setHeader('Content-Type', 'application/json');
+  res.send({
+    ...swaggerSpec,
+    servers: [
+      { url: `${protocol}://${host}/api/v1`, description: 'Current server' }
+    ]
+  });
+});
+
+// Swagger UI — loads spec from /api-docs.json so server URL matches this host
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(null, {
+  customSiteTitle: 'CareMate API Docs',
+  swaggerOptions: {
+    url: '/api-docs.json',
+    persistAuthorization: true,
+    docExpansion: 'list',
+    filter: true,
+    tryItOutEnabled: true
+  }
+}));
 
 // Rate limiting
 app.use('/api/', apiLimiter);
@@ -58,7 +92,8 @@ app.use(errorHandler);
 app.listen(PORT, async () => {
   console.log(`CareMate API Server running on port ${PORT}`);
   console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`API Base URL: http://localhost:${PORT}/api`);
+  console.log(`API Base URL: http://localhost:${PORT}/api/v1`);
+  console.log(`Swagger Docs: http://localhost:${PORT}/api-docs`);
   
   // Test database connection
   try {
