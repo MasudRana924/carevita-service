@@ -6,8 +6,8 @@ const createUser = async (userData) => {
   const hashedPassword = password ? await bcrypt.hash(password, 10) : null;
 
   const query = `
-    INSERT INTO users (phone, email, password, name, profile_photo, role, language_preference, emergency_contact)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+    INSERT INTO users (phone, email, password, name, profile_photo, role, language_preference, emergency_contact, ekyc_status)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, false)
     RETURNING *
   `;
   const values = [phone || null, email, hashedPassword, name, profile_photo, role || 'USER', language_preference, emergency_contact];
@@ -94,6 +94,21 @@ const updateStatus = async (id, status) => {
   return result.rows[0];
 };
 
+const updateEkyc = async (id, ekycData) => {
+  const { ekyc_status, ekyc_verified_at, ekyc_reference_id } = ekycData;
+  const query = `
+    UPDATE users
+    SET ekyc_status = COALESCE($1, ekyc_status),
+        ekyc_verified_at = COALESCE($2, ekyc_verified_at),
+        ekyc_reference_id = COALESCE($3, ekyc_reference_id),
+        updated_at = CURRENT_TIMESTAMP
+    WHERE id = $4
+    RETURNING *
+  `;
+  const result = await pool.query(query, [ekyc_status, ekyc_verified_at, ekyc_reference_id, id]);
+  return result.rows[0];
+};
+
 const deleteUser = async (id) => {
   const query = 'DELETE FROM users WHERE id = $1 RETURNING *';
   const result = await pool.query(query, [id]);
@@ -101,7 +116,7 @@ const deleteUser = async (id) => {
 };
 
 const findAll = async (filters = {}) => {
-  let query = 'SELECT id, phone, email, name, profile_photo, role, status, is_verified, created_at FROM users WHERE 1=1';
+  let query = 'SELECT id, phone, email, name, profile_photo, role, status, is_verified, ekyc_status, created_at FROM users WHERE 1=1';
   const values = [];
   let paramCount = 0;
 
@@ -157,6 +172,7 @@ module.exports = {
   verifyPassword,
   setVerified,
   updateStatus,
+  updateEkyc,
   deleteUser,
   findAll,
   findByEmailAndPassword

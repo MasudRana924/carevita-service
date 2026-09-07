@@ -94,20 +94,21 @@ exports.verifyOTP = async (req, res) => {
       return res.notFound('User not found');
     }
 
-    await setVerified(user.id);
+    const verifiedUser = await setVerified(user.id);
 
-    const token = generateToken({ userId: user.id, role: user.role });
-    const refreshToken = generateRefreshToken({ userId: user.id });
+    const token = generateToken({ userId: verifiedUser.id, role: verifiedUser.role });
+    const refreshToken = generateRefreshToken({ userId: verifiedUser.id });
 
     res.success({
       token,
       refreshToken,
       user: {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        role: user.role,
-        is_verified: user.is_verified
+        id: verifiedUser.id,
+        email: verifiedUser.email,
+        name: verifiedUser.name,
+        role: verifiedUser.role,
+        is_verified: verifiedUser.is_verified,
+        ekyc_status: verifiedUser.ekyc_status
       }
     }, 'OTP verified successfully');
   } catch (error) {
@@ -147,36 +148,27 @@ exports.register = async (req, res) => {
 
     const emailSent = await sendEmailOTP(email, otp);
 
+    const userPayload = {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      is_verified: user.is_verified,
+      ekyc_status: user.ekyc_status
+    };
+
     if (role === 'ADMIN') {
       res.created({
-        user: {
-          id: user.id,
-          name: user.name,
-          email: user.email,
-          role: user.role,
-          is_verified: user.is_verified
-        }
+        user: userPayload
       }, 'Admin registration successful. Please verify your email with the OTP sent to your email address. OTP expires in 1 minute.');
     } else if (role === 'CAREGIVER') {
       res.created({
-        user: {
-          id: user.id,
-          name: user.name,
-          email: user.email,
-          role: user.role,
-          is_verified: user.is_verified
-        },
+        user: userPayload,
         expiresAt
       }, 'Caregiver registration successful. Please verify your email with the OTP sent to your email address. OTP expires in 1 minute.');
     } else {
       res.created({
-        user: {
-          id: user.id,
-          name: user.name,
-          email: user.email,
-          role: user.role,
-          is_verified: user.is_verified
-        },
+        user: userPayload,
         expiresAt
       }, 'Registration successful. Please verify your email with the OTP sent to your email address. OTP expires in 1 minute.');
     }
@@ -227,7 +219,8 @@ exports.login = async (req, res) => {
         email: user.email,
         name: user.name,
         role: user.role,
-        is_verified: user.is_verified
+        is_verified: user.is_verified,
+        ekyc_status: user.ekyc_status
       }
     }, 'Login successful');
   } catch (error) {
@@ -297,6 +290,7 @@ exports.getProfile = async (req, res) => {
         role: user.role,
         status: user.status,
         is_verified: user.is_verified,
+        ekyc_status: user.ekyc_status,
         language_preference: user.language_preference,
         emergency_contact: user.emergency_contact,
         address: user.address,

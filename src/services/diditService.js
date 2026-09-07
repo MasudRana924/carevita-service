@@ -3,16 +3,15 @@ const diditConfig = require('../config/didit');
 
 class DiditService {
   /**
-   * Initiate eKYC verification for a caregiver
-   * @param {string} userId - User ID
-   * @param {string} caregiverProfileId - Caregiver profile ID
+   * Initiate eKYC verification for a user
+   * @param {string} userId - User ID (also used as Didit reference_id)
    * @param {object} userData - User data (name, email, phone, etc.)
    * @returns {object} - Didit verification session data
    */
-  static async initiateEKYC(userId, caregiverProfileId, userData) {
+  static async initiateEKYC(userId, userData) {
     try {
       const payload = {
-        reference_id: caregiverProfileId,
+        reference_id: userId,
         user_id: userId,
         user_data: {
           first_name: userData.name?.split(' ')[0] || '',
@@ -38,7 +37,7 @@ class DiditService {
       return {
         success: true,
         verification_url: response.data.verification_url,
-        reference_id: response.data.reference_id,
+        reference_id: response.data.reference_id || userId,
         session_id: response.data.session_id,
       };
     } catch (error) {

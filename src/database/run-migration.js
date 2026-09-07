@@ -6,6 +6,12 @@ const runMigration = async () => {
     await pool.query('SELECT NOW()');
     console.log('Connected successfully');
 
+    console.log('Adding user eKYC columns...');
+    await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS ekyc_status BOOLEAN DEFAULT false');
+    await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS ekyc_verified_at TIMESTAMP');
+    await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS ekyc_reference_id TEXT');
+    console.log('User eKYC columns added');
+
     console.log('Adding caregiver profile columns...');
     await pool.query('ALTER TABLE caregiver_profiles ADD COLUMN IF NOT EXISTS education TEXT');
     await pool.query('ALTER TABLE caregiver_profiles ADD COLUMN IF NOT EXISTS blood_group VARCHAR(10)');

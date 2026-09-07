@@ -1,30 +1,25 @@
 const DiditService = require('../services/diditService');
-const { updateCaregiverProfile, findByUserId } = require('../models/CaregiverProfile');
+const { findById, updateEkyc } = require('../models/User');
 
 /**
- * Initiate eKYC verification for caregiver
+ * Initiate eKYC verification for current user
  */
 exports.initiateEKYC = async (req, res) => {
   try {
     const userId = req.user.id;
-    const caregiverProfile = await findByUserId(userId);
+    const user = await findById(userId);
 
-    if (!caregiverProfile) {
-      return res.notFound('Caregiver profile not found');
+    if (!user) {
+      return res.notFound('User not found');
     }
 
-    if (caregiverProfile.ekyc_status) {
+    if (user.ekyc_status) {
       return res.badRequest('eKYC already verified');
     }
 
-    const diditResponse = await DiditService.initiateEKYC(
-      userId,
-      caregiverProfile.id,
-      req.user
-    );
+    const diditResponse = await DiditService.initiateEKYC(userId, user);
 
-    // Update caregiver profile with reference ID
-    await updateCaregiverProfile(caregiverProfile.id, {
+    await updateEkyc(userId, {
       ekyc_reference_id: diditResponse.reference_id,
     });
 
@@ -54,9 +49,9 @@ exports.handleEKYCWebhook = async (req, res) => {
 
     const verificationResult = DiditService.processVerificationResult(webhookData);
 
-    // Update caregiver profile with verification result
+    // reference_id is the user id
     if (verificationResult.reference_id) {
-      await updateCaregiverProfile(verificationResult.reference_id, {
+      await updateEkyc(verificationResult.reference_id, {
         ekyc_status: verificationResult.status,
         ekyc_verified_at: verificationResult.verified_at,
       });
@@ -75,16 +70,16 @@ exports.handleEKYCWebhook = async (req, res) => {
 exports.getEKYCStatus = async (req, res) => {
   try {
     const userId = req.user.id;
-    const caregiverProfile = await findByUserId(userId);
+    const user = await findById(userId);
 
-    if (!caregiverProfile) {
-      return res.notFound('Caregiver profile not found');
+    if (!user) {
+      return res.notFound('User not found');
     }
 
     res.success({
-      ekyc_status: caregiverProfile.ekyc_status,
-      ekyc_verified_at: caregiverProfile.ekyc_verified_at,
-      ekyc_reference_id: caregiverProfile.ekyc_reference_id,
+      ekyc_status: user.ekyc_status,
+      ekyc_verified_at: user.ekyc_verified_at,
+      ekyc_reference_id: user.ekyc_reference_id,
     });
   } catch (error) {
     console.error('Get eKYC status error:', error);

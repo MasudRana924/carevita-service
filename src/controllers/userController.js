@@ -19,6 +19,7 @@ exports.getMyProfile = async (req, res) => {
       profile_photo: user.profile_photo,
       role: user.role,
       is_verified: user.is_verified,
+      ekyc_status: user.ekyc_status,
       language_preference: user.language_preference,
       emergency_contact: user.emergency_contact,
       created_at: user.created_at
