@@ -13,6 +13,7 @@ const serviceRoutes = require('./serviceRoutes');
 const reviewRoutes = require('./reviewRoutes');
 const notificationRoutes = require('./notificationRoutes');
 const ekycRoutes = require('./ekycRoutes');
+const medicineRoutes = require('./medicineRoutes');
 
 router.use('/auth', authRoutes);
 router.use('/user', userRoutes);
@@ -26,6 +27,7 @@ router.use('/services', serviceRoutes);
 router.use('/reviews', reviewRoutes);
 router.use('/notifications', notificationRoutes);
 router.use('/ekyc', ekycRoutes);
+router.use('/medicines', medicineRoutes);
 
 router.get('/health', (req, res) => {
   res.status(200).json({

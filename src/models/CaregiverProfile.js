@@ -1,14 +1,26 @@
 const pool = require('../config/database');
 
 const createCaregiverProfile = async (profileData) => {
-  const { user_id, bio, experience_years, service_areas, hourly_rate, education, blood_group, date_of_birth, profile_photo, gender } = profileData;
+  const {
+    user_id, bio, experience_years, service_areas, hourly_rate,
+    education, blood_group, date_of_birth, profile_photo, gender,
+    district, thana
+  } = profileData;
 
   const query = `
-    INSERT INTO caregiver_profiles (user_id, bio, experience_years, service_areas, hourly_rate, education, blood_group, date_of_birth, profile_photo, gender, ekyc_status)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, false)
+    INSERT INTO caregiver_profiles (
+      user_id, bio, experience_years, service_areas, hourly_rate,
+      education, blood_group, date_of_birth, profile_photo, gender,
+      district, thana, ekyc_status
+    )
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, false)
     RETURNING *
   `;
-  const values = [user_id, bio, experience_years, service_areas, hourly_rate, education, blood_group, date_of_birth, profile_photo, gender];
+  const values = [
+    user_id, bio, experience_years, service_areas, hourly_rate,
+    education, blood_group, date_of_birth, profile_photo, gender,
+    district, thana
+  ];
 
   const result = await pool.query(query, values);
   return result.rows[0];
@@ -27,7 +39,11 @@ const getCaregiverProfileById = async (id) => {
 };
 
 const updateCaregiverProfile = async (id, updateData) => {
-  const { bio, experience_years, service_areas, hourly_rate, is_available, education, blood_group, date_of_birth, profile_photo, gender, ekyc_status, ekyc_verified_at, ekyc_reference_id } = updateData;
+  const {
+    bio, experience_years, service_areas, hourly_rate, is_available,
+    education, blood_group, date_of_birth, profile_photo, gender,
+    district, thana, ekyc_status, ekyc_verified_at, ekyc_reference_id
+  } = updateData;
 
   const query = `
     UPDATE caregiver_profiles
@@ -41,14 +57,20 @@ const updateCaregiverProfile = async (id, updateData) => {
         date_of_birth = COALESCE($8, date_of_birth),
         profile_photo = COALESCE($9, profile_photo),
         gender = COALESCE($10, gender),
-        ekyc_status = COALESCE($11, ekyc_status),
-        ekyc_verified_at = COALESCE($12, ekyc_verified_at),
-        ekyc_reference_id = COALESCE($13, ekyc_reference_id),
+        district = COALESCE($11, district),
+        thana = COALESCE($12, thana),
+        ekyc_status = COALESCE($13, ekyc_status),
+        ekyc_verified_at = COALESCE($14, ekyc_verified_at),
+        ekyc_reference_id = COALESCE($15, ekyc_reference_id),
         updated_at = CURRENT_TIMESTAMP
-    WHERE id = $14
+    WHERE id = $16
     RETURNING *
   `;
-  const values = [bio, experience_years, service_areas, hourly_rate, is_available, education, blood_group, date_of_birth, profile_photo, gender, ekyc_status, ekyc_verified_at, ekyc_reference_id, id];
+  const values = [
+    bio, experience_years, service_areas, hourly_rate, is_available,
+    education, blood_group, date_of_birth, profile_photo, gender,
+    district, thana, ekyc_status, ekyc_verified_at, ekyc_reference_id, id
+  ];
 
   const result = await pool.query(query, values);
   return result.rows[0];
@@ -70,9 +92,12 @@ const updateVerificationStatus = async (id, status, note) => {
 };
 
 const searchCaregivers = async (filters = {}) => {
-  const { service_area, name, gender, verification_status, min_rating, page = 1, limit = 20 } = filters;
+  const {
+    service_area, name, gender, verification_status, min_rating,
+    district, thana, page = 1, limit = 20
+  } = filters;
   const offset = (page - 1) * limit;
-  
+
   let query = `
     SELECT cp.*, u.name, u.email, u.phone, u.profile_photo
     FROM caregiver_profiles cp
@@ -86,6 +111,18 @@ const searchCaregivers = async (filters = {}) => {
     paramCount++;
     query += ` AND u.name ILIKE $${paramCount}`;
     values.push(`%${name}%`);
+  }
+
+  if (district) {
+    paramCount++;
+    query += ` AND cp.district ILIKE $${paramCount}`;
+    values.push(district);
+  }
+
+  if (thana) {
+    paramCount++;
+    query += ` AND cp.thana ILIKE $${paramCount}`;
+    values.push(thana);
   }
 
   if (service_area) {
@@ -123,7 +160,6 @@ const updateRating = async (id, newRating) => {
   const query = `
     UPDATE caregiver_profiles 
     SET rating = $1,
-        completed_bookings = completed_bookings + 1,
         updated_at = CURRENT_TIMESTAMP
     WHERE id = $2
     RETURNING *

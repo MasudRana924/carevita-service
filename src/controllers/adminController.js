@@ -7,6 +7,20 @@ const { updateVerificationStatus: updateNurseVerification } = require('../models
 const { getDocumentsByProvider, updateVerificationStatus: updateDocVerification } = require('../models/ProviderDocument');
 const { findAll: findAllPayments } = require('../models/Payment');
 const { createNotification } = require('../models/Notification');
+const {
+  findAll: findAllUsers,
+  findById: findUserById,
+  adminUpdateUser,
+  deleteUser
+} = require('../models/User');
+const {
+  createMedicine,
+  findById: findMedicineById,
+  findAll: findAllMedicines,
+  updateMedicine,
+  deleteMedicine
+} = require('../models/Medicine');
+const MedicineOrder = require('../models/MedicineOrder');
 
 exports.getDashboardStats = async (req, res) => {
   try {
@@ -43,32 +57,66 @@ exports.getDashboardStats = async (req, res) => {
 
 exports.getAllUsers = async (req, res) => {
   try {
-    const { role, page = 1, limit = 20 } = req.query;
+    const { role, status, is_verified, page = 1, limit = 20 } = req.query;
     const offset = (page - 1) * limit;
 
-    let query = 'SELECT id, name, email, phone, role, is_verified, status, created_at FROM users WHERE 1=1';
-    const values = [];
-    let paramCount = 0;
+    const users = await findAllUsers({
+      role,
+      status,
+      is_verified: is_verified !== undefined ? is_verified === 'true' || is_verified === true : undefined,
+      limit: parseInt(limit),
+      offset: parseInt(offset)
+    });
 
-    if (role) {
-      paramCount++;
-      query += ` AND role = $${paramCount}`;
-      values.push(role);
-    }
-
-    query += ' ORDER BY created_at DESC LIMIT $' + (paramCount + 1) + ' OFFSET $' + (paramCount + 2);
-    values.push(parseInt(limit), parseInt(offset));
-
-    const result = await pool.query(query, values);
-
-    res.success(result.rows, null, {
+    res.success(users, null, {
       page: parseInt(page),
       limit: parseInt(limit),
-      total: result.rows.length
+      total: users.length
     });
   } catch (error) {
     console.error('Get users error:', error);
     res.serverError('Failed to fetch users');
+  }
+};
+
+exports.updateUser = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status, is_verified, ekyc_status, role } = req.body;
+
+    const existing = await findUserById(id);
+    if (!existing) {
+      return res.notFound('User not found');
+    }
+
+    if (existing.role === 'ADMIN' && req.user.id === id && (status === 'inactive' || status === 'banned')) {
+      return res.error('Cannot deactivate your own admin account');
+    }
+
+    const updated = await adminUpdateUser(id, {
+      status,
+      is_verified,
+      ekyc_status,
+      role
+    });
+
+    if (!updated) {
+      return res.notFound('User not found');
+    }
+
+    await createNotification({
+      user_id: id,
+      title: 'Account Updated',
+      message: 'An admin updated your account settings.',
+      type: 'ACCOUNT',
+      reference_id: id,
+      reference_type: 'user'
+    });
+
+    res.success(updated, 'User updated successfully');
+  } catch (error) {
+    console.error('Update user error:', error);
+    res.serverError('Failed to update user');
   }
 };
 
@@ -77,10 +125,9 @@ exports.updateUserStatus = async (req, res) => {
     const { id } = req.params;
     const { status } = req.body;
 
-    const query = 'UPDATE users SET status = $1 WHERE id = $2 RETURNING *';
-    const result = await pool.query(query, [status, id]);
+    const updated = await adminUpdateUser(id, { status });
 
-    if (result.rows.length === 0) {
+    if (!updated) {
       return res.notFound('User not found');
     }
 
@@ -93,10 +140,55 @@ exports.updateUserStatus = async (req, res) => {
       reference_type: 'user'
     });
 
-    res.success(result.rows[0], 'User status updated successfully');
+    res.success(updated, 'User status updated successfully');
   } catch (error) {
     console.error('Update user status error:', error);
     res.serverError('Failed to update user status');
+  }
+};
+
+exports.deleteUserAccount = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (req.user.id === id) {
+      return res.error('Cannot delete your own admin account');
+    }
+
+    const existing = await findUserById(id);
+    if (!existing) {
+      return res.notFound('User not found');
+    }
+
+    const deleted = await deleteUser(id);
+    res.success({ id: deleted.id, email: deleted.email }, 'User account deleted successfully');
+  } catch (error) {
+    console.error('Delete user error:', error);
+    if (error.code === '23503') {
+      return res.error('Cannot delete user with related records. Set status to inactive instead.', [], 409);
+    }
+    res.serverError('Failed to delete user');
+  }
+};
+
+exports.getAllNurses = async (req, res) => {
+  try {
+    const { verification_status, page = 1, limit = 20 } = req.query;
+
+    const nurses = await searchNurses({
+      verification_status,
+      page: parseInt(page),
+      limit: parseInt(limit)
+    });
+
+    res.success(nurses, null, {
+      page: parseInt(page),
+      limit: parseInt(limit),
+      total: nurses.length
+    });
+  } catch (error) {
+    console.error('Get nurses error:', error);
+    res.serverError('Failed to fetch nurses');
   }
 };
 
@@ -363,5 +455,175 @@ exports.getRevenueStats = async (req, res) => {
   } catch (error) {
     console.error('Get revenue stats error:', error);
     res.serverError('Failed to fetch revenue stats');
+  }
+};
+
+// --- Medicines ---
+exports.getAllMedicines = async (req, res) => {
+  try {
+    const { category, is_active, page = 1, limit = 20 } = req.query;
+    const offset = (page - 1) * limit;
+
+    const medicines = await findAllMedicines({
+      category,
+      is_active: is_active !== undefined ? is_active === 'true' || is_active === true : undefined,
+      limit: parseInt(limit),
+      offset: parseInt(offset)
+    });
+
+    res.success(medicines, null, {
+      page: parseInt(page),
+      limit: parseInt(limit),
+      total: medicines.length
+    });
+  } catch (error) {
+    console.error('Get medicines error:', error);
+    res.serverError('Failed to fetch medicines');
+  }
+};
+
+exports.createMedicine = async (req, res) => {
+  try {
+    const {
+      name, generic_name, manufacturer, category, description,
+      strength, form, is_prescription_required
+    } = req.body;
+
+    if (!name) {
+      return res.error('Medicine name is required');
+    }
+
+    const medicine = await createMedicine({
+      name,
+      generic_name,
+      manufacturer,
+      category,
+      description,
+      strength,
+      form,
+      is_prescription_required: !!is_prescription_required
+    });
+
+    res.created(medicine, 'Medicine created successfully');
+  } catch (error) {
+    console.error('Create medicine error:', error);
+    res.serverError('Failed to create medicine');
+  }
+};
+
+exports.updateMedicine = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const existing = await findMedicineById(id);
+    if (!existing) {
+      return res.notFound('Medicine not found');
+    }
+
+    const medicine = await updateMedicine(id, {
+      name: req.body.name ?? existing.name,
+      generic_name: req.body.generic_name ?? existing.generic_name,
+      manufacturer: req.body.manufacturer ?? existing.manufacturer,
+      category: req.body.category ?? existing.category,
+      description: req.body.description ?? existing.description,
+      strength: req.body.strength ?? existing.strength,
+      form: req.body.form ?? existing.form,
+      is_prescription_required: req.body.is_prescription_required ?? existing.is_prescription_required,
+      is_active: req.body.is_active ?? existing.is_active
+    });
+
+    res.success(medicine, 'Medicine updated successfully');
+  } catch (error) {
+    console.error('Update medicine error:', error);
+    res.serverError('Failed to update medicine');
+  }
+};
+
+exports.deleteMedicine = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const deleted = await deleteMedicine(id);
+    if (!deleted) {
+      return res.notFound('Medicine not found');
+    }
+    res.success(deleted, 'Medicine deleted successfully');
+  } catch (error) {
+    console.error('Delete medicine error:', error);
+    res.serverError('Failed to delete medicine');
+  }
+};
+
+// --- Medicine orders ---
+exports.getAllOrders = async (req, res) => {
+  try {
+    const { status, date_from, date_to, page = 1, limit = 20 } = req.query;
+    const offset = (page - 1) * limit;
+
+    const orders = await MedicineOrder.findAll({
+      status,
+      date_from,
+      date_to,
+      limit: parseInt(limit),
+      offset: parseInt(offset)
+    });
+
+    res.success(orders, null, {
+      page: parseInt(page),
+      limit: parseInt(limit),
+      total: orders.length
+    });
+  } catch (error) {
+    console.error('Get orders error:', error);
+    res.serverError('Failed to fetch orders');
+  }
+};
+
+exports.getOrder = async (req, res) => {
+  try {
+    const order = await MedicineOrder.findById(req.params.id);
+    if (!order) {
+      return res.notFound('Order not found');
+    }
+    res.success(order);
+  } catch (error) {
+    console.error('Get order error:', error);
+    res.serverError('Failed to fetch order');
+  }
+};
+
+exports.updateOrderStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status, payment_status } = req.body;
+
+    const existing = await MedicineOrder.findById(id);
+    if (!existing) {
+      return res.notFound('Order not found');
+    }
+
+    let updated = existing;
+    if (status) {
+      updated = await MedicineOrder.updateStatus(id, status);
+    }
+    if (payment_status) {
+      updated = await MedicineOrder.updatePaymentStatus(id, payment_status);
+    }
+
+    if (!status && !payment_status) {
+      return res.error('status or payment_status is required');
+    }
+
+    await createNotification({
+      user_id: existing.user_id,
+      title: 'Order Status Updated',
+      message: `Your medicine order ${existing.order_number} status is now ${status || existing.status}.`,
+      type: 'ORDER',
+      reference_id: id,
+      reference_type: 'medicine_order'
+    });
+
+    res.success(updated, 'Order updated successfully');
+  } catch (error) {
+    console.error('Update order status error:', error);
+    res.serverError('Failed to update order status');
   }
 };

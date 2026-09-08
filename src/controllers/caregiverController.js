@@ -6,8 +6,15 @@ const { findByProviderId: findReviewsByProviderId, getProviderAverageRating } = 
 
 exports.createProfile = async (req, res) => {
   try {
-    const { bio, experience_years, service_areas, hourly_rate, education, blood_group, date_of_birth, gender } = req.body;
-    
+    const {
+      bio, experience_years, service_areas, hourly_rate, education,
+      blood_group, date_of_birth, gender, district, thana
+    } = req.body;
+
+    if (!district || !thana) {
+      return res.error('District and thana are required');
+    }
+
     const existingProfile = await getCaregiverProfileByUserId(req.user.id);
     if (existingProfile) {
       return res.error('Profile already exists', [], 409);
@@ -25,7 +32,9 @@ exports.createProfile = async (req, res) => {
       blood_group,
       date_of_birth,
       profile_photo: profilePhoto,
-      gender
+      gender,
+      district: String(district).trim(),
+      thana: String(thana).trim()
     });
 
     res.created(profile, 'Caregiver profile created successfully');
@@ -52,8 +61,11 @@ exports.getMyProfile = async (req, res) => {
 
 exports.updateMyProfile = async (req, res) => {
   try {
-    const { bio, experience_years, service_areas, hourly_rate, is_available, education, blood_group, date_of_birth, gender } = req.body;
-    
+    const {
+      bio, experience_years, service_areas, hourly_rate, is_available,
+      education, blood_group, date_of_birth, gender, district, thana
+    } = req.body;
+
     const profile = await getCaregiverProfileByUserId(req.user.id);
     if (!profile) {
       return res.notFound('Profile not found');
@@ -71,7 +83,9 @@ exports.updateMyProfile = async (req, res) => {
       blood_group,
       date_of_birth,
       profile_photo: profilePhoto,
-      gender
+      gender,
+      district: district !== undefined ? String(district).trim() : undefined,
+      thana: thana !== undefined ? String(thana).trim() : undefined
     });
 
     res.success(updatedProfile, 'Profile updated successfully');
@@ -149,14 +163,19 @@ exports.setMyAvailability = async (req, res) => {
 
 exports.searchCaregivers = async (req, res) => {
   try {
-    const { service_area, name, gender, verification_status, min_rating, page = 1, limit = 20 } = req.query;
-    
+    const {
+      service_area, name, gender, verification_status, min_rating,
+      district, thana, page = 1, limit = 20
+    } = req.query;
+
     const caregivers = await searchCaregivers({
       service_area,
       name,
       gender,
       verification_status,
       min_rating,
+      district,
+      thana,
       page: parseInt(page),
       limit: parseInt(limit)
     });
@@ -192,8 +211,13 @@ exports.viewCaregiverProfile = async (req, res) => {
 exports.getMyBookings = async (req, res) => {
   try {
     const { status } = req.query;
-    
-    const bookings = await findBookingsByProviderId(req.user.id, 'CAREGIVER', { status });
+
+    const profile = await getCaregiverProfileByUserId(req.user.id);
+    if (!profile) {
+      return res.notFound('Caregiver profile not found');
+    }
+
+    const bookings = await findBookingsByProviderId(profile.id, 'CAREGIVER', { status });
 
     res.success(bookings);
   } catch (error) {
@@ -204,7 +228,12 @@ exports.getMyBookings = async (req, res) => {
 
 exports.getMyEarnings = async (req, res) => {
   try {
-    const bookings = await findBookingsByProviderId(req.user.id, 'CAREGIVER', {
+    const profile = await getCaregiverProfileByUserId(req.user.id);
+    if (!profile) {
+      return res.notFound('Caregiver profile not found');
+    }
+
+    const bookings = await findBookingsByProviderId(profile.id, 'CAREGIVER', {
       status: 'SERVICE_COMPLETED'
     });
 
@@ -224,13 +253,18 @@ exports.getMyEarnings = async (req, res) => {
 exports.getMyReviews = async (req, res) => {
   try {
     const { page = 1, limit = 20 } = req.query;
-    
-    const reviews = await findReviewsByProviderId(req.user.id, 'CAREGIVER', {
+
+    const profile = await getCaregiverProfileByUserId(req.user.id);
+    if (!profile) {
+      return res.notFound('Caregiver profile not found');
+    }
+
+    const reviews = await findReviewsByProviderId(profile.id, 'CAREGIVER', {
       limit: parseInt(limit),
       offset: (parseInt(page) - 1) * parseInt(limit)
     });
 
-    const avgRating = await getProviderAverageRating(req.user.id, 'CAREGIVER');
+    const avgRating = await getProviderAverageRating(profile.id, 'CAREGIVER');
 
     res.success({
       reviews,

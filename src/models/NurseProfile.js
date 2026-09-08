@@ -111,7 +111,6 @@ const updateRating = async (id, newRating) => {
   const query = `
     UPDATE nurse_profiles 
     SET rating = $1,
-        completed_bookings = completed_bookings + 1,
         updated_at = CURRENT_TIMESTAMP
     WHERE id = $2
     RETURNING *

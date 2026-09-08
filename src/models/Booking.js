@@ -263,6 +263,19 @@ const updateStatus = async (id, status) => {
   return result.rows[0];
 };
 
+const clearProvider = async (id, status = 'SEARCHING_PROVIDER') => {
+  const query = `
+    UPDATE bookings
+    SET provider_id = NULL,
+        status = $1,
+        updated_at = CURRENT_TIMESTAMP
+    WHERE id = $2
+    RETURNING *
+  `;
+  const result = await pool.query(query, [status, id]);
+  return result.rows[0];
+};
+
 const updatePaymentStatus = async (id, payment_status) => {
   const query = `
     UPDATE bookings 
@@ -275,21 +288,24 @@ const updatePaymentStatus = async (id, payment_status) => {
 };
 
 const cancel = async (id, cancellation_reason, cancelled_by) => {
+  const status = cancelled_by === 'CANCELLED_BY_PROVIDER' || cancelled_by === 'CANCELLED_BY_ADMIN'
+    ? cancelled_by
+    : 'CANCELLED_BY_USER';
   const query = `
     UPDATE bookings 
-    SET status = 'cancelled', cancellation_reason = $1, cancelled_by = $2,
+    SET status = $1, cancellation_reason = $2, cancelled_by = $3,
         cancelled_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-    WHERE id = $3
+    WHERE id = $4
     RETURNING *
   `;
-  const result = await pool.query(query, [cancellation_reason, cancelled_by, id]);
+  const result = await pool.query(query, [status, cancellation_reason, cancelled_by, id]);
   return result.rows[0];
 };
 
 const complete = async (id) => {
   const query = `
     UPDATE bookings 
-    SET status = 'completed', completed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+    SET status = 'SERVICE_COMPLETED', completed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
     WHERE id = $1
     RETURNING *
   `;
@@ -361,6 +377,7 @@ module.exports = {
   findAll,
   updateBooking,
   updateStatus,
+  clearProvider,
   updatePaymentStatus,
   cancel,
   complete,

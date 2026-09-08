@@ -30,15 +30,16 @@ Use the **Authorize** button (top-right) after login / verify-otp.
       { name: 'Auth', description: 'OTP, register, login, profile' },
       { name: 'User', description: 'Current user profile, bookings, payments, notifications' },
       { name: 'Family Members', description: 'Manage family members' },
-      { name: 'Caregiver', description: 'Caregiver profile, search, bookings' },
+      { name: 'Caregiver', description: 'Caregiver profile, search, bookings, accept/reject' },
       { name: 'Nurse', description: 'Nurse profile, search, bookings' },
       { name: 'Bookings', description: 'Create and manage service bookings' },
       { name: 'Payments', description: 'bKash and payment operations' },
-      { name: 'Admin', description: 'Admin dashboard and management (ADMIN role)' },
+      { name: 'Admin', description: 'Admin dashboard — users, nurses, bookings, medicines, orders' },
       { name: 'Services', description: 'Services and hospitals catalog' },
-      { name: 'Reviews', description: 'User and provider reviews' },
+      { name: 'Reviews', description: 'Ratings and feedback for caregivers/nurses' },
       { name: 'Notifications', description: 'In-app notifications' },
-      { name: 'eKYC', description: 'Identity verification (Didit)' }
+      { name: 'eKYC', description: 'Identity verification (Didit)' },
+      { name: 'Medicines', description: 'Medicine search and user orders' }
     ],
     components: {
       securitySchemes: {

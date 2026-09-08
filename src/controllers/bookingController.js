@@ -4,6 +4,7 @@ const {
   findByUserId,
   updateBooking,
   updateStatus,
+  clearProvider,
   cancel,
   complete,
   addStatusHistory,
@@ -11,8 +12,27 @@ const {
 } = require('../models/Booking');
 const { findById: findFamilyMemberById, findByUserIdAndId } = require('../models/FamilyMember');
 const { createAddress } = require('../models/Address');
-const { createReview } = require('../models/Review');
+const { createReview, findByBookingId, getProviderAverageRating } = require('../models/Review');
 const { createNotification } = require('../models/Notification');
+const { getCaregiverProfileByUserId, updateRating: updateCaregiverRating } = require('../models/CaregiverProfile');
+const { getNurseProfileByUserId, updateRating: updateNurseRating } = require('../models/NurseProfile');
+
+const resolveProviderProfileId = async (userId, providerType) => {
+  if (providerType === 'CAREGIVER') {
+    const profile = await getCaregiverProfileByUserId(userId);
+    return profile ? profile.id : null;
+  }
+  if (providerType === 'NURSE') {
+    const profile = await getNurseProfileByUserId(userId);
+    return profile ? profile.id : null;
+  }
+  return null;
+};
+
+const isAssignedProvider = async (booking, userId) => {
+  const providerProfileId = await resolveProviderProfileId(userId, booking.provider_type);
+  return !!providerProfileId && booking.provider_id === providerProfileId;
+};
 
 exports.createBooking = async (req, res) => {
   try {
@@ -128,7 +148,7 @@ exports.getBooking = async (req, res) => {
       return res.notFound('Booking not found');
     }
 
-    if (booking.user_id !== req.user.id && booking.provider_id !== req.user.id) {
+    if (booking.user_id !== req.user.id && !(await isAssignedProvider(booking, req.user.id))) {
       return res.forbidden('Access denied');
     }
 
@@ -245,11 +265,12 @@ exports.acceptBooking = async (req, res) => {
       return res.notFound('Booking not found');
     }
 
-    if (booking.provider_id !== req.user.id) {
-      return res.forbidden('Access denied');
+    const providerProfileId = await resolveProviderProfileId(req.user.id, booking.provider_type);
+    if (!providerProfileId || booking.provider_id !== providerProfileId) {
+      return res.forbidden('Access denied — this booking is not assigned to you');
     }
 
-    if (booking.status !== 'SEARCHING_PROVIDER') {
+    if (!['SEARCHING_PROVIDER', 'PROVIDER_ASSIGNED'].includes(booking.status)) {
       return res.error('Booking cannot be accepted in current status');
     }
 
@@ -284,22 +305,24 @@ exports.rejectBooking = async (req, res) => {
       return res.notFound('Booking not found');
     }
 
-    if (booking.provider_id !== req.user.id) {
-      return res.forbidden('Access denied');
+    const providerProfileId = await resolveProviderProfileId(req.user.id, booking.provider_type);
+    if (!providerProfileId || booking.provider_id !== providerProfileId) {
+      return res.forbidden('Access denied — this booking is not assigned to you');
     }
 
-    if (booking.status !== 'SEARCHING_PROVIDER') {
+    if (!['SEARCHING_PROVIDER', 'PROVIDER_ASSIGNED', 'PROVIDER_ACCEPTED'].includes(booking.status)) {
       return res.error('Booking cannot be rejected in current status');
     }
 
     const oldStatus = booking.status;
-    const updated = await updateStatus(id, 'SEARCHING_PROVIDER');
-    await addStatusHistory(id, oldStatus, 'SEARCHING_PROVIDER', req.user.id, `Provider rejected: ${reason}`);
+    const rejectReason = reason || 'No reason provided';
+    const updated = await clearProvider(id, 'CANCELLED_BY_PROVIDER');
+    await addStatusHistory(id, oldStatus, 'CANCELLED_BY_PROVIDER', req.user.id, `Provider rejected: ${rejectReason}`);
 
     await createNotification({
       user_id: booking.user_id,
       title: 'Booking Rejected',
-      message: `Provider rejected your booking ${booking.booking_number}. Reason: ${reason}`,
+      message: `Provider rejected your booking ${booking.booking_number}. Reason: ${rejectReason}`,
       type: 'BOOKING',
       reference_id: booking.id,
       reference_type: 'booking'
@@ -323,7 +346,7 @@ exports.startService = async (req, res) => {
       return res.notFound('Booking not found');
     }
 
-    if (booking.provider_id !== req.user.id) {
+    if (!(await isAssignedProvider(booking, req.user.id))) {
       return res.forbidden('Access denied');
     }
 
@@ -362,7 +385,7 @@ exports.pickupPatient = async (req, res) => {
       return res.notFound('Booking not found');
     }
 
-    if (booking.provider_id !== req.user.id) {
+    if (!(await isAssignedProvider(booking, req.user.id))) {
       return res.forbidden('Access denied');
     }
 
@@ -405,7 +428,7 @@ exports.completeService = async (req, res) => {
       return res.notFound('Booking not found');
     }
 
-    if (booking.provider_id !== req.user.id) {
+    if (!(await isAssignedProvider(booking, req.user.id))) {
       return res.forbidden('Access denied');
     }
 
@@ -444,7 +467,8 @@ exports.cancelBooking = async (req, res) => {
       return res.notFound('Booking not found');
     }
 
-    if (booking.user_id !== req.user.id && booking.provider_id !== req.user.id) {
+    const asProvider = await isAssignedProvider(booking, req.user.id);
+    if (booking.user_id !== req.user.id && !asProvider) {
       return res.forbidden('Access denied');
     }
 
@@ -452,7 +476,7 @@ exports.cancelBooking = async (req, res) => {
       return res.error('Cannot cancel this booking');
     }
 
-    const cancelStatus = req.user.id === booking.user_id ? 'CANCELLED_BY_USER' : 'CANCELLED_BY_PROVIDER';
+    const cancelStatus = booking.user_id === req.user.id ? 'CANCELLED_BY_USER' : 'CANCELLED_BY_PROVIDER';
     const oldStatus = booking.status;
     const updated = await cancel(id, reason, cancelStatus);
     await addStatusHistory(id, oldStatus, cancelStatus, req.user.id, reason);
@@ -476,7 +500,11 @@ exports.cancelBooking = async (req, res) => {
 exports.submitReview = async (req, res) => {
   try {
     const { id } = req.params;
-    const { rating, comment } = req.body;
+    const {
+      rating, comment, feedback,
+      overall_rating, punctuality_rating, politeness_rating,
+      professionalism_rating, helpfulness_rating, trustworthiness_rating, review
+    } = req.body;
 
     const booking = await findById(id);
 
@@ -492,21 +520,78 @@ exports.submitReview = async (req, res) => {
       return res.error('Can only review completed bookings');
     }
 
-    const review = await createReview({
+    if (!booking.provider_id) {
+      return res.error('No provider assigned to this booking');
+    }
+
+    const existing = await findByBookingId(booking.id);
+    if (existing) {
+      return res.error('You have already reviewed this booking', [], 409);
+    }
+
+    const overall = overall_rating || rating;
+    if (!overall || overall < 1 || overall > 5) {
+      return res.error('Rating is required (1-5)');
+    }
+
+    const reviewText = review || feedback || comment || null;
+
+    const created = await createReview({
       booking_id: booking.id,
       user_id: req.user.id,
       provider_id: booking.provider_id,
       provider_type: booking.provider_type,
-      overall_rating: rating,
-      punctuality_rating: rating,
-      politeness_rating: rating,
-      professionalism_rating: rating,
-      helpfulness_rating: rating,
-      trustworthiness_rating: rating,
-      review: comment
+      overall_rating: overall,
+      punctuality_rating: punctuality_rating || overall,
+      politeness_rating: politeness_rating || overall,
+      professionalism_rating: professionalism_rating || overall,
+      helpfulness_rating: helpfulness_rating || overall,
+      trustworthiness_rating: trustworthiness_rating || overall,
+      review: reviewText
     });
 
-    res.created(review, 'Review submitted successfully');
+    const avgRating = await getProviderAverageRating(booking.provider_id, booking.provider_type);
+    const avg = parseFloat(avgRating.avg_overall) || overall;
+
+    if (booking.provider_type === 'CAREGIVER') {
+      await updateCaregiverRating(booking.provider_id, avg);
+    } else if (booking.provider_type === 'NURSE') {
+      await updateNurseRating(booking.provider_id, avg);
+    }
+
+    try {
+      if (booking.provider_type === 'CAREGIVER') {
+        const { getCaregiverProfileById } = require('../models/CaregiverProfile');
+        const profile = await getCaregiverProfileById(booking.provider_id);
+        if (profile) {
+          await createNotification({
+            user_id: profile.user_id,
+            title: 'New Review Received',
+            message: `You received a ${overall}/5 review on booking ${booking.booking_number}.`,
+            type: 'REVIEW',
+            reference_id: created.id,
+            reference_type: 'review'
+          });
+        }
+      } else if (booking.provider_type === 'NURSE') {
+        const { getNurseProfileById } = require('../models/NurseProfile');
+        const profile = await getNurseProfileById(booking.provider_id);
+        if (profile) {
+          await createNotification({
+            user_id: profile.user_id,
+            title: 'New Review Received',
+            message: `You received a ${overall}/5 review on booking ${booking.booking_number}.`,
+            type: 'REVIEW',
+            reference_id: created.id,
+            reference_type: 'review'
+          });
+        }
+      }
+    } catch (notifyErr) {
+      console.error('Review notify provider error:', notifyErr.message);
+    }
+
+    res.created(created, 'Review submitted successfully');
   } catch (error) {
     console.error('Submit review error:', error);
     res.serverError('Failed to submit review');

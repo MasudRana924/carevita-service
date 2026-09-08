@@ -199,6 +199,8 @@ const createTables = async () => {
         education TEXT,
         blood_group VARCHAR(10),
         date_of_birth DATE,
+        district VARCHAR(100),
+        thana VARCHAR(100),
         verification_status VARCHAR(50) DEFAULT 'PENDING' CHECK (verification_status IN ('PENDING', 'UNDER_REVIEW', 'APPROVED', 'REJECTED', 'SUSPENDED')),
         verification_note TEXT,
         rating DECIMAL(3, 2) DEFAULT 0,

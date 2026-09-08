@@ -79,9 +79,12 @@ const findByUserId = async (user_id, filters = {}) => {
   let query = `
     SELECT r.*, 
       CASE 
-        WHEN r.provider_type = 'helping_hand' THEN (SELECT name FROM helping_hands WHERE id = r.provider_id)
-        WHEN r.provider_type = 'nurse' THEN (SELECT name FROM nurses WHERE id = r.provider_id)
-        WHEN r.provider_type = 'doctor' THEN (SELECT name FROM doctors WHERE id = r.provider_id)
+        WHEN r.provider_type = 'CAREGIVER' THEN (
+          SELECT u.name FROM caregiver_profiles cp JOIN users u ON cp.user_id = u.id WHERE cp.id = r.provider_id
+        )
+        WHEN r.provider_type = 'NURSE' THEN (
+          SELECT u.name FROM nurse_profiles np JOIN users u ON np.user_id = u.id WHERE np.id = r.provider_id
+        )
         ELSE 'Unknown'
       END as provider_name
     FROM reviews r
@@ -96,6 +99,12 @@ const findByUserId = async (user_id, filters = {}) => {
     paramCount++;
     query += ` LIMIT $${paramCount}`;
     values.push(filters.limit);
+  }
+
+  if (filters.offset) {
+    paramCount++;
+    query += ` OFFSET $${paramCount}`;
+    values.push(filters.offset);
   }
 
   const result = await pool.query(query, values);

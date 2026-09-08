@@ -18,6 +18,8 @@
  *               blood_group: { type: string }
  *               date_of_birth: { type: string, format: date }
  *               gender: { type: string }
+ *               district: { type: string, example: Dhaka, description: Required }
+ *               thana: { type: string, example: Dhanmondi, description: Required }
  *               profile_photo:
  *                 type: string
  *                 format: binary
@@ -48,6 +50,8 @@
  *               blood_group: { type: string }
  *               date_of_birth: { type: string, format: date }
  *               gender: { type: string }
+ *               district: { type: string, example: Dhaka }
+ *               thana: { type: string, example: Dhanmondi }
  *               profile_photo:
  *                 type: string
  *                 format: binary
@@ -106,9 +110,17 @@
  * /caregiver/search:
  *   get:
  *     tags: [Caregiver]
- *     summary: Search caregivers (public)
+ *     summary: Search caregivers (public) — filter by district, thana
  *     security: []
  *     parameters:
+ *       - in: query
+ *         name: district
+ *         schema: { type: string }
+ *         example: Dhaka
+ *       - in: query
+ *         name: thana
+ *         schema: { type: string }
+ *         example: Dhanmondi
  *       - in: query
  *         name: service_area
  *         schema: { type: string }

@@ -72,14 +72,35 @@ const verifyPassword = async (plainPassword, hashedPassword) => {
   return await bcrypt.compare(plainPassword, hashedPassword);
 };
 
-const setVerified = async (id) => {
+const setVerified = async (id, is_verified = true) => {
   const query = `
     UPDATE users 
-    SET is_verified = true, updated_at = CURRENT_TIMESTAMP
-    WHERE id = $1
+    SET is_verified = $1, updated_at = CURRENT_TIMESTAMP
+    WHERE id = $2
     RETURNING *
   `;
-  const result = await pool.query(query, [id]);
+  const result = await pool.query(query, [is_verified, id]);
+  return result.rows[0];
+};
+
+const adminUpdateUser = async (id, userData) => {
+  const { status, is_verified, ekyc_status, role } = userData;
+  const query = `
+    UPDATE users
+    SET status = COALESCE($1, status),
+        is_verified = COALESCE($2, is_verified),
+        ekyc_status = COALESCE($3, ekyc_status),
+        ekyc_verified_at = CASE
+          WHEN $3::boolean = true THEN COALESCE(ekyc_verified_at, CURRENT_TIMESTAMP)
+          WHEN $3::boolean = false THEN NULL
+          ELSE ekyc_verified_at
+        END,
+        role = COALESCE($4, role),
+        updated_at = CURRENT_TIMESTAMP
+    WHERE id = $5
+    RETURNING id, phone, email, name, profile_photo, role, status, is_verified, ekyc_status, ekyc_verified_at, created_at, updated_at
+  `;
+  const result = await pool.query(query, [status, is_verified, ekyc_status, role, id]);
   return result.rows[0];
 };
 
@@ -171,6 +192,7 @@ module.exports = {
   updatePassword,
   verifyPassword,
   setVerified,
+  adminUpdateUser,
   updateStatus,
   updateEkyc,
   deleteUser,
