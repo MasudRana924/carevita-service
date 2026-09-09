@@ -1,9 +1,77 @@
 const { createFamilyMember, findById, findByUserId, updateFamilyMember, deleteFamilyMember, findByUserIdAndId } = require('../models/FamilyMember');
-const { createAddress } = require('../models/Address');
+const { createAddress, updateAddress } = require('../models/Address');
+
+const emptyToNull = (value) => {
+  if (value === undefined || value === null || value === '') return null;
+  return value;
+};
+
+const parseAddressPayload = (body) => {
+  if (!body) return null;
+
+  let source = body.address;
+
+  if (typeof source === 'string') {
+    const trimmed = source.trim();
+    if (!trimmed) {
+      source = null;
+    } else if (trimmed.startsWith('{')) {
+      try {
+        source = JSON.parse(trimmed);
+      } catch {
+        source = { address_line: trimmed };
+      }
+    } else {
+      source = { address_line: trimmed };
+    }
+  }
+
+  const nested = source && typeof source === 'object' ? source : {};
+
+  const address_line = emptyToNull(nested.address_line || nested.address || body.address_line);
+  const city = emptyToNull(nested.city || body.city);
+  const district = emptyToNull(nested.district || body.district);
+  const division = emptyToNull(nested.division || body.division);
+  const latitude = emptyToNull(nested.latitude ?? body.latitude);
+  const longitude = emptyToNull(nested.longitude ?? body.longitude);
+
+  const hasValue = [address_line, city, district, division, latitude, longitude].some(Boolean);
+  if (!hasValue) return null;
+
+  return { address_line, city, district, division, latitude, longitude };
+};
+
+const saveAddress = async (addressPayload, existingAddressId) => {
+  if (!addressPayload) return existingAddressId || null;
+
+  if (existingAddressId) {
+    const updated = await updateAddress(existingAddressId, addressPayload);
+    return updated ? updated.id : existingAddressId;
+  }
+
+  const created = await createAddress(addressPayload);
+  return created.id;
+};
 
 exports.addFamilyMember = async (req, res) => {
   try {
-    const { name, relationship, phone, blood_group, date_of_birth } = req.body;
+    const { 
+      name, 
+      relationship, 
+      phone, 
+      blood_group, 
+      date_of_birth,
+      gender,
+      emergency_contact_name,
+      emergency_contact_phone,
+      medical_history,
+      existing_conditions,
+      allergies,
+      current_medications
+    } = req.body;
+
+    const addressPayload = parseAddressPayload(req.body);
+    const address_id = await saveAddress(addressPayload, null);
     
     let photoUrl = null;
     if (req.file) {
@@ -15,19 +83,20 @@ exports.addFamilyMember = async (req, res) => {
       name,
       photo: photoUrl,
       date_of_birth,
-      gender: null,
+      gender: gender || null,
       relationship,
       blood_group,
-      address_id: null,
-      emergency_contact_name: null,
-      emergency_contact_phone: phone,
-      medical_history: null,
-      existing_conditions: null,
-      allergies: null,
-      current_medications: null
+      address_id,
+      emergency_contact_name: emergency_contact_name || null,
+      emergency_contact_phone: emergency_contact_phone || phone || null,
+      medical_history: medical_history || null,
+      existing_conditions: existing_conditions || null,
+      allergies: allergies || null,
+      current_medications: current_medications || null
     });
 
-    res.created(familyMember, 'Family member added successfully');
+    const created = await findById(familyMember.id);
+    res.created(created, 'Family member added successfully');
   } catch (error) {
     console.error('Add family member error:', error);
     res.serverError('Failed to add family member');
@@ -69,7 +138,20 @@ exports.viewFamilyMember = async (req, res) => {
 exports.updateFamilyMember = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, relationship, phone, blood_group, date_of_birth } = req.body;
+    const { 
+      name, 
+      relationship, 
+      phone, 
+      blood_group, 
+      date_of_birth,
+      gender,
+      emergency_contact_name,
+      emergency_contact_phone,
+      medical_history,
+      existing_conditions,
+      allergies,
+      current_medications
+    } = req.body;
     
     const familyMember = await findByUserIdAndId(req.user.id, id);
     
@@ -82,23 +164,29 @@ exports.updateFamilyMember = async (req, res) => {
       photoUrl = req.file.path;
     }
 
+    const addressPayload = parseAddressPayload(req.body);
+    const address_id = addressPayload
+      ? await saveAddress(addressPayload, familyMember.address_id)
+      : undefined;
+
     const updatedMember = await updateFamilyMember(id, {
       name,
       photo: photoUrl,
       date_of_birth,
-      gender: null,
+      gender: gender || null,
       relationship,
       blood_group,
-      address_id: null,
-      emergency_contact_name: null,
-      emergency_contact_phone: phone,
-      medical_history: null,
-      existing_conditions: null,
-      allergies: null,
-      current_medications: null
+      address_id,
+      emergency_contact_name: emergency_contact_name || null,
+      emergency_contact_phone: emergency_contact_phone || phone || null,
+      medical_history: medical_history || null,
+      existing_conditions: existing_conditions || null,
+      allergies: allergies || null,
+      current_medications: current_medications || null
     });
 
-    res.success(updatedMember, 'Family member updated successfully');
+    const updated = await findById(updatedMember.id);
+    res.success(updated, 'Family member updated successfully');
   } catch (error) {
     console.error('Update family member error:', error);
     res.serverError('Failed to update family member');

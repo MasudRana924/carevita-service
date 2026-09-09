@@ -17,6 +17,12 @@
  *               phone: { type: string }
  *               blood_group: { type: string, example: B+ }
  *               date_of_birth: { type: string, format: date }
+ *               address_line: { type: string, example: House 12, Road 5 }
+ *               city: { type: string, example: Dhaka }
+ *               district: { type: string, example: Dhaka }
+ *               division: { type: string, example: Dhaka }
+ *               latitude: { type: number, example: 23.79 }
+ *               longitude: { type: number, example: 90.41 }
  *               photo:
  *                 type: string
  *                 format: binary
@@ -63,6 +69,12 @@
  *               phone: { type: string }
  *               blood_group: { type: string }
  *               date_of_birth: { type: string, format: date }
+ *               address_line: { type: string }
+ *               city: { type: string }
+ *               district: { type: string }
+ *               division: { type: string }
+ *               latitude: { type: number }
+ *               longitude: { type: number }
  *               photo:
  *                 type: string
  *                 format: binary

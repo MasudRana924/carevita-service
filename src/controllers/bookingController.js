@@ -16,6 +16,7 @@ const { createReview, findByBookingId, getProviderAverageRating } = require('../
 const { createNotification } = require('../models/Notification');
 const { getCaregiverProfileByUserId, updateRating: updateCaregiverRating } = require('../models/CaregiverProfile');
 const { getNurseProfileByUserId, updateRating: updateNurseRating } = require('../models/NurseProfile');
+const PricingService = require('../services/pricingService');
 
 const resolveProviderProfileId = async (userId, providerType) => {
   if (providerType === 'CAREGIVER') {
@@ -39,7 +40,7 @@ exports.createBooking = async (req, res) => {
     const {
       service_type, family_member_id, provider_type, provider_id,
       hospital_id, booking_date, start_time, duration_hours,
-      pickup_location, patient_requirements, notes
+      pickup_location, destination_location, patient_requirements, notes
     } = req.body;
 
     if (!service_type || !family_member_id || !booking_date || !start_time || !duration_hours) {
@@ -64,17 +65,29 @@ exports.createBooking = async (req, res) => {
       pickup_address_id = pickupAddress.id;
     }
 
+    let destination_address_id = null;
+    if (destination_location) {
+      const destinationAddress = await createAddress({
+        address_line: destination_location.address,
+        city: destination_location.city,
+        district: destination_location.district,
+        division: destination_location.division,
+        latitude: destination_location.latitude,
+        longitude: destination_location.longitude
+      });
+      destination_address_id = destinationAddress.id;
+    }
+
     const end_time = new Date(`${booking_date}T${start_time}`);
     end_time.setHours(end_time.getHours() + parseInt(duration_hours));
 
-    const basePrice = service_type === 'HOSPITAL_ASSISTANCE' ? 300 : 500;
-    const hourlyRate = service_type === 'HOSPITAL_ASSISTANCE' ? 250 : 500;
-    const service_charge = basePrice + (hourlyRate * duration_hours);
-    const platform_fee = 100;
-    const total_amount = service_charge + platform_fee;
-    const advance_percentage = 50;
-    const advance_amount = total_amount * (advance_percentage / 100);
-    const remaining_amount = total_amount - advance_amount;
+    // Calculate price using PricingService
+    const providerRate = service_type === 'HOSPITAL_ASSISTANCE' ? 250 : 500;
+    const pricing = PricingService.calculateBookingPrice({
+      providerRate,
+      durationHours: parseInt(duration_hours),
+      discount: 0
+    });
 
     const booking = await createBooking({
       user_id: req.user.id,
@@ -88,16 +101,16 @@ exports.createBooking = async (req, res) => {
       end_time: end_time.toTimeString().slice(0, 5),
       duration_hours,
       pickup_address_id,
-      destination_address_id: null,
+      destination_address_id,
       patient_requirements,
       notes,
-      service_charge,
-      platform_fee,
-      discount: 0,
-      total_amount,
-      advance_percentage,
-      advance_amount,
-      remaining_amount
+      service_charge: pricing.subtotal,
+      platform_fee: pricing.platformFee,
+      discount: pricing.discount,
+      total_amount: pricing.totalAmount,
+      advance_percentage: 50,
+      advance_amount: pricing.advanceAmount,
+      remaining_amount: pricing.remainingAmount
     });
 
     await createNotification({

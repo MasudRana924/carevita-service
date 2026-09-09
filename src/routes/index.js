@@ -14,6 +14,11 @@ const reviewRoutes = require('./reviewRoutes');
 const notificationRoutes = require('./notificationRoutes');
 const ekycRoutes = require('./ekycRoutes');
 const medicineRoutes = require('./medicineRoutes');
+const providerServiceRoutes = require('./providerServiceRoutes');
+const providerPaymentAccountRoutes = require('./providerPaymentAccountRoutes');
+const withdrawalRoutes = require('./withdrawalRoutes');
+const disputeRoutes = require('./disputeRoutes');
+const notificationTokenRoutes = require('./notificationTokenRoutes');
 
 router.use('/auth', authRoutes);
 router.use('/user', userRoutes);
@@ -28,6 +33,14 @@ router.use('/reviews', reviewRoutes);
 router.use('/notifications', notificationRoutes);
 router.use('/ekyc', ekycRoutes);
 router.use('/medicines', medicineRoutes);
+router.use('/caregiver', providerServiceRoutes);
+router.use('/nurse', providerServiceRoutes);
+router.use('/caregiver', providerPaymentAccountRoutes);
+router.use('/nurse', providerPaymentAccountRoutes);
+router.use('/caregiver', withdrawalRoutes);
+router.use('/nurse', withdrawalRoutes);
+router.use('/bookings', disputeRoutes);
+router.use('/notifications', notificationTokenRoutes);
 
 router.get('/health', (req, res) => {
   res.status(200).json({

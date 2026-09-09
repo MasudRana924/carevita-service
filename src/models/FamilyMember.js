@@ -1,5 +1,20 @@
 const pool = require('../config/database');
 
+const familyMemberSelect = `
+  SELECT fm.*,
+    CASE WHEN a.id IS NOT NULL THEN json_build_object(
+      'id', a.id,
+      'address_line', a.address_line,
+      'city', a.city,
+      'district', a.district,
+      'division', a.division,
+      'latitude', a.latitude,
+      'longitude', a.longitude
+    ) ELSE NULL END as address
+  FROM family_members fm
+  LEFT JOIN addresses a ON fm.address_id = a.id
+`;
+
 const createFamilyMember = async (memberData) => {
   const {
     user_id, name, photo, date_of_birth, gender, relationship, blood_group,
@@ -27,13 +42,13 @@ const createFamilyMember = async (memberData) => {
 };
 
 const findById = async (id) => {
-  const query = 'SELECT * FROM family_members WHERE id = $1';
+  const query = `${familyMemberSelect} WHERE fm.id = $1`;
   const result = await pool.query(query, [id]);
   return result.rows[0];
 };
 
 const findByUserId = async (user_id) => {
-  const query = 'SELECT * FROM family_members WHERE user_id = $1 ORDER BY created_at DESC';
+  const query = `${familyMemberSelect} WHERE fm.user_id = $1 ORDER BY fm.created_at DESC`;
   const result = await pool.query(query, [user_id]);
   return result.rows;
 };
@@ -81,7 +96,7 @@ const deleteFamilyMember = async (id) => {
 };
 
 const findByUserIdAndId = async (user_id, id) => {
-  const query = 'SELECT * FROM family_members WHERE user_id = $1 AND id = $2';
+  const query = `${familyMemberSelect} WHERE fm.user_id = $1 AND fm.id = $2`;
   const result = await pool.query(query, [user_id, id]);
   return result.rows[0];
 };
