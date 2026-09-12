@@ -222,6 +222,7 @@ const migrate = async () => {
     await client.query('ALTER TABLE hospitals ADD COLUMN IF NOT EXISTS details TEXT');
     await client.query('ALTER TABLE bookings ADD COLUMN IF NOT EXISTS patient_requirements TEXT');
     await client.query('ALTER TABLE family_members ADD COLUMN IF NOT EXISTS gender VARCHAR(20)');
+    await client.query('ALTER TABLE family_members ADD COLUMN IF NOT EXISTS phone VARCHAR(20)');
     await client.query('ALTER TABLE family_members ADD COLUMN IF NOT EXISTS district VARCHAR(100)');
     await client.query('ALTER TABLE family_members ADD COLUMN IF NOT EXISTS thana VARCHAR(100)');
     await client.query('ALTER TABLE family_members ADD COLUMN IF NOT EXISTS house TEXT');

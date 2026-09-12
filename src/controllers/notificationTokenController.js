@@ -12,11 +12,17 @@ exports.registerToken = async (req, res) => {
       return res.badRequest('device_id, platform, and token are required');
     }
 
+    const normalizedPlatform = String(platform).trim().toUpperCase();
+    const allowed = ['ANDROID', 'IOS', 'WEB'];
+    if (!allowed.includes(normalizedPlatform)) {
+      return res.badRequest('platform must be one of: android, ios, web');
+    }
+
     const notificationToken = await createNotificationToken({
       user_id: userId,
-      device_id,
-      platform,
-      token
+      device_id: String(device_id).trim(),
+      platform: normalizedPlatform,
+      token: String(token).trim()
     });
 
     res.success(notificationToken, 'Notification token registered successfully');

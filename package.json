@@ -8,6 +8,8 @@
     "dev": "nodemon src/server.js",
     "migrate": "node src/database/migrate.js",
     "migrate:patch": "node src/database/run-migration.js",
+    "migrate:clean": "node src/database/run-migration.js",
+    "db:tables": "node src/database/list-tables.js",
     "seed": "node src/database/seed.js"
   },
   "keywords": [
