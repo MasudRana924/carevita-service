@@ -10,19 +10,17 @@
  *         multipart/form-data:
  *           schema:
  *             type: object
- *             required: [name, relationship]
+ *             required: [name]
  *             properties:
  *               name: { type: string, example: Abba }
  *               relationship: { type: string, example: Father }
  *               phone: { type: string }
  *               blood_group: { type: string, example: B+ }
  *               date_of_birth: { type: string, format: date }
- *               address_line: { type: string, example: House 12, Road 5 }
- *               city: { type: string, example: Dhaka }
+ *               gender: { type: string, example: male }
  *               district: { type: string, example: Dhaka }
- *               division: { type: string, example: Dhaka }
- *               latitude: { type: number, example: 23.79 }
- *               longitude: { type: number, example: 90.41 }
+ *               thana: { type: string, example: Dhanmondi }
+ *               house: { type: string, example: House 12, Road 5 }
  *               photo:
  *                 type: string
  *                 format: binary
@@ -69,12 +67,9 @@
  *               phone: { type: string }
  *               blood_group: { type: string }
  *               date_of_birth: { type: string, format: date }
- *               address_line: { type: string }
- *               city: { type: string }
  *               district: { type: string }
- *               division: { type: string }
- *               latitude: { type: number }
- *               longitude: { type: number }
+ *               thana: { type: string }
+ *               house: { type: string }
  *               photo:
  *                 type: string
  *                 format: binary

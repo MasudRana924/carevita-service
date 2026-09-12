@@ -1,67 +1,29 @@
-const { createFamilyMember, findById, findByUserId, updateFamilyMember, deleteFamilyMember, findByUserIdAndId } = require('../models/FamilyMember');
-const { createAddress, updateAddress } = require('../models/Address');
+const {
+  createFamilyMember,
+  findById,
+  findByUserId,
+  updateFamilyMember,
+  deleteFamilyMember,
+  findByUserIdAndId
+} = require('../models/FamilyMember');
 
 const emptyToNull = (value) => {
   if (value === undefined || value === null || value === '') return null;
   return value;
 };
 
-const parseAddressPayload = (body) => {
-  if (!body) return null;
-
-  let source = body.address;
-
-  if (typeof source === 'string') {
-    const trimmed = source.trim();
-    if (!trimmed) {
-      source = null;
-    } else if (trimmed.startsWith('{')) {
-      try {
-        source = JSON.parse(trimmed);
-      } catch {
-        source = { address_line: trimmed };
-      }
-    } else {
-      source = { address_line: trimmed };
-    }
-  }
-
-  const nested = source && typeof source === 'object' ? source : {};
-
-  const address_line = emptyToNull(nested.address_line || nested.address || body.address_line);
-  const city = emptyToNull(nested.city || body.city);
-  const district = emptyToNull(nested.district || body.district);
-  const division = emptyToNull(nested.division || body.division);
-  const latitude = emptyToNull(nested.latitude ?? body.latitude);
-  const longitude = emptyToNull(nested.longitude ?? body.longitude);
-
-  const hasValue = [address_line, city, district, division, latitude, longitude].some(Boolean);
-  if (!hasValue) return null;
-
-  return { address_line, city, district, division, latitude, longitude };
-};
-
-const saveAddress = async (addressPayload, existingAddressId) => {
-  if (!addressPayload) return existingAddressId || null;
-
-  if (existingAddressId) {
-    const updated = await updateAddress(existingAddressId, addressPayload);
-    return updated ? updated.id : existingAddressId;
-  }
-
-  const created = await createAddress(addressPayload);
-  return created.id;
-};
-
 exports.addFamilyMember = async (req, res) => {
   try {
-    const { 
-      name, 
-      relationship, 
-      phone, 
-      blood_group, 
+    const {
+      name,
+      relationship,
+      phone,
+      blood_group,
       date_of_birth,
       gender,
+      district,
+      thana,
+      house,
       emergency_contact_name,
       emergency_contact_phone,
       medical_history,
@@ -70,9 +32,10 @@ exports.addFamilyMember = async (req, res) => {
       current_medications
     } = req.body;
 
-    const addressPayload = parseAddressPayload(req.body);
-    const address_id = await saveAddress(addressPayload, null);
-    
+    if (!name) {
+      return res.error('name is required');
+    }
+
     let photoUrl = null;
     if (req.file) {
       photoUrl = req.file.path;
@@ -82,17 +45,20 @@ exports.addFamilyMember = async (req, res) => {
       user_id: req.user.id,
       name,
       photo: photoUrl,
-      date_of_birth,
-      gender: gender || null,
-      relationship,
-      blood_group,
-      address_id,
-      emergency_contact_name: emergency_contact_name || null,
-      emergency_contact_phone: emergency_contact_phone || phone || null,
-      medical_history: medical_history || null,
-      existing_conditions: existing_conditions || null,
-      allergies: allergies || null,
-      current_medications: current_medications || null
+      date_of_birth: emptyToNull(date_of_birth),
+      gender: emptyToNull(gender),
+      relationship: emptyToNull(relationship),
+      blood_group: emptyToNull(blood_group),
+      phone: emptyToNull(phone),
+      district: emptyToNull(district),
+      thana: emptyToNull(thana),
+      house: emptyToNull(house),
+      emergency_contact_name: emptyToNull(emergency_contact_name),
+      emergency_contact_phone: emptyToNull(emergency_contact_phone || phone),
+      medical_history: emptyToNull(medical_history),
+      existing_conditions: emptyToNull(existing_conditions),
+      allergies: emptyToNull(allergies),
+      current_medications: emptyToNull(current_medications)
     });
 
     const created = await findById(familyMember.id);
@@ -120,14 +86,10 @@ exports.listFamilyMembers = async (req, res) => {
 
 exports.viewFamilyMember = async (req, res) => {
   try {
-    const { id } = req.params;
-    
-    const familyMember = await findByUserIdAndId(req.user.id, id);
-    
+    const familyMember = await findByUserIdAndId(req.user.id, req.params.id);
     if (!familyMember) {
       return res.notFound('Family member not found');
     }
-
     res.success(familyMember);
   } catch (error) {
     console.error('View family member error:', error);
@@ -138,13 +100,16 @@ exports.viewFamilyMember = async (req, res) => {
 exports.updateFamilyMember = async (req, res) => {
   try {
     const { id } = req.params;
-    const { 
-      name, 
-      relationship, 
-      phone, 
-      blood_group, 
+    const {
+      name,
+      relationship,
+      phone,
+      blood_group,
       date_of_birth,
       gender,
+      district,
+      thana,
+      house,
       emergency_contact_name,
       emergency_contact_phone,
       medical_history,
@@ -152,9 +117,8 @@ exports.updateFamilyMember = async (req, res) => {
       allergies,
       current_medications
     } = req.body;
-    
+
     const familyMember = await findByUserIdAndId(req.user.id, id);
-    
     if (!familyMember) {
       return res.notFound('Family member not found');
     }
@@ -164,25 +128,23 @@ exports.updateFamilyMember = async (req, res) => {
       photoUrl = req.file.path;
     }
 
-    const addressPayload = parseAddressPayload(req.body);
-    const address_id = addressPayload
-      ? await saveAddress(addressPayload, familyMember.address_id)
-      : undefined;
-
     const updatedMember = await updateFamilyMember(id, {
-      name,
+      name: emptyToNull(name),
       photo: photoUrl,
-      date_of_birth,
-      gender: gender || null,
-      relationship,
-      blood_group,
-      address_id,
-      emergency_contact_name: emergency_contact_name || null,
-      emergency_contact_phone: emergency_contact_phone || phone || null,
-      medical_history: medical_history || null,
-      existing_conditions: existing_conditions || null,
-      allergies: allergies || null,
-      current_medications: current_medications || null
+      date_of_birth: emptyToNull(date_of_birth),
+      gender: emptyToNull(gender),
+      relationship: emptyToNull(relationship),
+      blood_group: emptyToNull(blood_group),
+      phone: emptyToNull(phone),
+      district: emptyToNull(district),
+      thana: emptyToNull(thana),
+      house: emptyToNull(house),
+      emergency_contact_name: emptyToNull(emergency_contact_name),
+      emergency_contact_phone: emptyToNull(emergency_contact_phone || phone),
+      medical_history: emptyToNull(medical_history),
+      existing_conditions: emptyToNull(existing_conditions),
+      allergies: emptyToNull(allergies),
+      current_medications: emptyToNull(current_medications)
     });
 
     const updated = await findById(updatedMember.id);
@@ -195,16 +157,12 @@ exports.updateFamilyMember = async (req, res) => {
 
 exports.deleteFamilyMember = async (req, res) => {
   try {
-    const { id } = req.params;
-    
-    const familyMember = await findByUserIdAndId(req.user.id, id);
-    
+    const familyMember = await findByUserIdAndId(req.user.id, req.params.id);
     if (!familyMember) {
       return res.notFound('Family member not found');
     }
 
-    await deleteFamilyMember(id);
-
+    await deleteFamilyMember(req.params.id);
     res.success(null, 'Family member deleted successfully');
   } catch (error) {
     console.error('Delete family member error:', error);

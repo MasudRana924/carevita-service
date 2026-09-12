@@ -5,7 +5,7 @@ const createBooking = async (bookingData) => {
   const {
     user_id, family_member_id, service_type, provider_type, provider_id,
     hospital_id, booking_date, start_time, end_time, duration_hours,
-    pickup_address_id, destination_address_id, patient_requirements, notes, service_charge,
+    patient_requirements, notes, service_charge,
     platform_fee, discount, total_amount, advance_percentage,
     advance_amount, remaining_amount
   } = bookingData;
@@ -16,17 +16,17 @@ const createBooking = async (bookingData) => {
     INSERT INTO bookings (
       booking_number, user_id, family_member_id, service_type, provider_type, provider_id,
       hospital_id, booking_date, start_time, end_time, duration_hours,
-      pickup_address_id, destination_address_id, patient_requirements, notes, service_charge,
+      patient_requirements, notes, service_charge,
       platform_fee, discount, total_amount, advance_percentage,
       advance_amount, remaining_amount, status
     )
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, 'PENDING_PAYMENT')
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, 'PROVIDER_ASSIGNED')
     RETURNING *
   `;
   const values = [
     booking_number, user_id, family_member_id, service_type, provider_type, provider_id,
     hospital_id, booking_date, start_time, end_time, duration_hours,
-    pickup_address_id, destination_address_id, patient_requirements, notes, service_charge,
+    patient_requirements, notes, service_charge,
     platform_fee, discount, total_amount, advance_percentage,
     advance_amount, remaining_amount
   ];
@@ -40,6 +40,7 @@ const findById = async (id) => {
     SELECT b.*, 
       u.name as customer_name, u.phone as customer_phone,
       fm.name as family_member_name, fm.photo as family_member_photo, fm.relationship as family_member_relationship, fm.blood_group as family_member_blood_group, fm.date_of_birth as family_member_dob,
+      fm.district as family_member_district, fm.thana as family_member_thana, fm.house as family_member_house,
       h.name as hospital_name, h.address as hospital_address, h.phone as hospital_phone, h.photo as hospital_photo,
       cp.bio as caregiver_bio, cp.education as caregiver_education, cp.experience_years as caregiver_experience, cp.rating as caregiver_rating, cp.profile_photo as caregiver_photo, cp.gender as caregiver_gender, cu.name as caregiver_name, cu.phone as caregiver_phone, cu.email as caregiver_email
     FROM bookings b
@@ -59,6 +60,7 @@ const findByBookingNumber = async (booking_number) => {
     SELECT b.*, 
       u.name as customer_name, u.phone as customer_phone,
       fm.name as family_member_name, fm.photo as family_member_photo, fm.relationship as family_member_relationship, fm.blood_group as family_member_blood_group, fm.date_of_birth as family_member_dob,
+      fm.district as family_member_district, fm.thana as family_member_thana, fm.house as family_member_house,
       h.name as hospital_name, h.address as hospital_address, h.phone as hospital_phone, h.photo as hospital_photo,
       cp.bio as caregiver_bio, cp.education as caregiver_education, cp.experience_years as caregiver_experience, cp.rating as caregiver_rating, cp.profile_photo as caregiver_photo, cp.gender as caregiver_gender, cu.name as caregiver_name, cu.phone as caregiver_phone, cu.email as caregiver_email
     FROM bookings b
@@ -77,6 +79,7 @@ const findByUserId = async (user_id, filters = {}) => {
   let query = `
     SELECT b.*, 
       fm.name as family_member_name, fm.photo as family_member_photo, fm.relationship as family_member_relationship, fm.blood_group as family_member_blood_group, fm.date_of_birth as family_member_dob,
+      fm.district as family_member_district, fm.thana as family_member_thana, fm.house as family_member_house,
       h.name as hospital_name, h.address as hospital_address, h.phone as hospital_phone, h.photo as hospital_photo,
       cp.bio as caregiver_bio, cp.education as caregiver_education, cp.experience_years as caregiver_experience, cp.rating as caregiver_rating, cp.profile_photo as caregiver_photo, cp.gender as caregiver_gender, cu.name as caregiver_name, cu.phone as caregiver_phone
     FROM bookings b
@@ -124,6 +127,7 @@ const findByProviderId = async (provider_id, provider_type, filters = {}) => {
     SELECT b.*, 
       u.name as customer_name, u.phone as customer_phone,
       fm.name as family_member_name, fm.photo as family_member_photo, fm.relationship as family_member_relationship, fm.blood_group as family_member_blood_group, fm.date_of_birth as family_member_dob,
+      fm.district as family_member_district, fm.thana as family_member_thana, fm.house as family_member_house,
       h.name as hospital_name, h.address as hospital_address, h.phone as hospital_phone, h.photo as hospital_photo,
       cp.bio as caregiver_bio, cp.education as caregiver_education, cp.experience_years as caregiver_experience, cp.rating as caregiver_rating, cp.profile_photo as caregiver_photo, cp.gender as caregiver_gender, cu.name as caregiver_name, cu.phone as caregiver_phone, cu.email as caregiver_email
     FROM bookings b
@@ -215,35 +219,33 @@ const findAll = async (filters = {}) => {
 const updateBooking = async (id, bookingData) => {
   const {
     provider_id, booking_date, start_time, end_time, duration_hours,
-    pickup_address_id, destination_address_id, notes, service_charge,
+    notes, service_charge,
     platform_fee, discount, total_amount, advance_percentage,
     advance_amount, remaining_amount
   } = bookingData;
 
   const query = `
-    UPDATE bookings 
+    UPDATE bookings
     SET provider_id = COALESCE($1, provider_id),
         booking_date = COALESCE($2, booking_date),
         start_time = COALESCE($3, start_time),
         end_time = COALESCE($4, end_time),
         duration_hours = COALESCE($5, duration_hours),
-        pickup_address_id = COALESCE($6, pickup_address_id),
-        destination_address_id = COALESCE($7, destination_address_id),
-        notes = COALESCE($8, notes),
-        service_charge = COALESCE($9, service_charge),
-        platform_fee = COALESCE($10, platform_fee),
-        discount = COALESCE($11, discount),
-        total_amount = COALESCE($12, total_amount),
-        advance_percentage = COALESCE($13, advance_percentage),
-        advance_amount = COALESCE($14, advance_amount),
-        remaining_amount = COALESCE($15, remaining_amount),
+        notes = COALESCE($6, notes),
+        service_charge = COALESCE($7, service_charge),
+        platform_fee = COALESCE($8, platform_fee),
+        discount = COALESCE($9, discount),
+        total_amount = COALESCE($10, total_amount),
+        advance_percentage = COALESCE($11, advance_percentage),
+        advance_amount = COALESCE($12, advance_amount),
+        remaining_amount = COALESCE($13, remaining_amount),
         updated_at = CURRENT_TIMESTAMP
-    WHERE id = $16
+    WHERE id = $14
     RETURNING *
   `;
   const values = [
     provider_id, booking_date, start_time, end_time, duration_hours,
-    pickup_address_id, destination_address_id, notes, service_charge,
+    notes, service_charge,
     platform_fee, discount, total_amount, advance_percentage,
     advance_amount, remaining_amount, id
   ];

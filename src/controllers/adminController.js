@@ -1,40 +1,36 @@
 const pool = require('../config/database');
 const { findAll: findAllBookings, getActiveBookings, getTodayBookings } = require('../models/Booking');
 const { searchCaregivers } = require('../models/CaregiverProfile');
-const { searchNurses } = require('../models/NurseProfile');
-const { updateVerificationStatus: updateCaregiverVerification } = require('../models/CaregiverProfile');
-const { updateVerificationStatus: updateNurseVerification } = require('../models/NurseProfile');
-const { getDocumentsByProvider, updateVerificationStatus: updateDocVerification } = require('../models/ProviderDocument');
-const { findAll: findAllPayments } = require('../models/Payment');
 const { createNotification } = require('../models/Notification');
 const {
   findAll: findAllUsers,
   findById: findUserById,
-  adminUpdateUser,
-  deleteUser
+  adminUpdateUser
 } = require('../models/User');
 const {
-  createMedicine,
-  findById: findMedicineById,
-  findAll: findAllMedicines,
-  updateMedicine,
-  deleteMedicine
-} = require('../models/Medicine');
-const MedicineOrder = require('../models/MedicineOrder');
+  createHospital,
+  findById: findHospitalById,
+  updateHospital
+} = require('../models/Hospital');
+
+exports.getAdminProfile = async (req, res) => {
+  try {
+    const user = await findUserById(req.user.id);
+    if (!user) return res.notFound('Admin not found');
+    const { password, ...safe } = user;
+    res.success(safe);
+  } catch (error) {
+    console.error('Get admin profile error:', error);
+    res.serverError('Failed to fetch admin profile');
+  }
+};
 
 exports.getDashboardStats = async (req, res) => {
   try {
-    const usersResult = await pool.query('SELECT COUNT(*) as count FROM users');
+    const usersResult = await pool.query("SELECT COUNT(*) as count FROM users WHERE role != 'ADMIN'");
     const bookingsResult = await pool.query('SELECT COUNT(*) as count FROM bookings');
-    const paymentsResult = await pool.query('SELECT COUNT(*) as count FROM payments WHERE status = $1', ['COMPLETED']);
-    const revenueResult = await pool.query('SELECT COALESCE(SUM(amount), 0) as total FROM payments WHERE status = $1', ['COMPLETED']);
     const caregiversResult = await pool.query('SELECT COUNT(*) as count FROM caregiver_profiles');
-    const nursesResult = await pool.query('SELECT COUNT(*) as count FROM nurse_profiles');
-    const pendingVerificationsResult = await pool.query(`
-      SELECT COUNT(*) as count FROM provider_documents 
-      WHERE verification_status = 'PENDING'
-    `);
-
+    const hospitalsResult = await pool.query('SELECT COUNT(*) as count FROM hospitals');
     const activeBookings = await getActiveBookings();
     const todayBookings = await getTodayBookings();
 
@@ -43,11 +39,8 @@ exports.getDashboardStats = async (req, res) => {
       totalBookings: parseInt(bookingsResult.rows[0].count),
       activeBookings: activeBookings.length,
       todayBookings: todayBookings.length,
-      totalPayments: parseInt(paymentsResult.rows[0].count),
-      totalRevenue: parseFloat(revenueResult.rows[0].total),
       totalCaregivers: parseInt(caregiversResult.rows[0].count),
-      totalNurses: parseInt(nursesResult.rows[0].count),
-      pendingVerifications: parseInt(pendingVerificationsResult.rows[0].count)
+      totalHospitals: parseInt(hospitalsResult.rows[0].count)
     });
   } catch (error) {
     console.error('Get dashboard stats error:', error);
@@ -57,18 +50,17 @@ exports.getDashboardStats = async (req, res) => {
 
 exports.getAllUsers = async (req, res) => {
   try {
-    const { role, status, is_verified, page = 1, limit = 20 } = req.query;
+    const { role, status, page = 1, limit = 20 } = req.query;
     const offset = (page - 1) * limit;
 
     const users = await findAllUsers({
-      role,
+      role: role || undefined,
       status,
-      is_verified: is_verified !== undefined ? is_verified === 'true' || is_verified === true : undefined,
       limit: parseInt(limit),
       offset: parseInt(offset)
     });
 
-    res.success(users, null, {
+    res.success(users.filter((u) => u.role !== 'ADMIN' || role === 'ADMIN'), null, {
       page: parseInt(page),
       limit: parseInt(limit),
       total: users.length
@@ -79,290 +71,129 @@ exports.getAllUsers = async (req, res) => {
   }
 };
 
-exports.updateUser = async (req, res) => {
+exports.blockUser = async (req, res) => {
   try {
-    const { id } = req.params;
-    const { status, is_verified, ekyc_status, role } = req.body;
-
-    const existing = await findUserById(id);
-    if (!existing) {
-      return res.notFound('User not found');
-    }
-
-    if (existing.role === 'ADMIN' && req.user.id === id && (status === 'inactive' || status === 'banned')) {
-      return res.error('Cannot deactivate your own admin account');
-    }
-
-    const updated = await adminUpdateUser(id, {
-      status,
-      is_verified,
-      ekyc_status,
-      role
-    });
-
-    if (!updated) {
-      return res.notFound('User not found');
-    }
-
+    const updated = await adminUpdateUser(req.params.id, { status: 'blocked' });
+    if (!updated) return res.notFound('User not found');
     await createNotification({
-      user_id: id,
-      title: 'Account Updated',
-      message: 'An admin updated your account settings.',
+      user_id: req.params.id,
+      title: 'Account Blocked',
+      message: 'Your account has been blocked by admin.',
       type: 'ACCOUNT',
-      reference_id: id,
+      reference_id: req.params.id,
       reference_type: 'user'
     });
-
-    res.success(updated, 'User updated successfully');
+    res.success(updated, 'User blocked');
   } catch (error) {
-    console.error('Update user error:', error);
-    res.serverError('Failed to update user');
+    console.error('Block user error:', error);
+    res.serverError('Failed to block user');
+  }
+};
+
+exports.unblockUser = async (req, res) => {
+  try {
+    const updated = await adminUpdateUser(req.params.id, { status: 'active' });
+    if (!updated) return res.notFound('User not found');
+    res.success(updated, 'User unblocked');
+  } catch (error) {
+    console.error('Unblock user error:', error);
+    res.serverError('Failed to unblock user');
   }
 };
 
 exports.updateUserStatus = async (req, res) => {
   try {
-    const { id } = req.params;
     const { status } = req.body;
-
-    const updated = await adminUpdateUser(id, { status });
-
-    if (!updated) {
-      return res.notFound('User not found');
-    }
-
-    await createNotification({
-      user_id: id,
-      title: 'Account Status Updated',
-      message: `Your account status has been updated to ${status}.`,
-      type: 'ACCOUNT',
-      reference_id: id,
-      reference_type: 'user'
-    });
-
-    res.success(updated, 'User status updated successfully');
+    if (!status) return res.error('status is required');
+    const updated = await adminUpdateUser(req.params.id, { status });
+    if (!updated) return res.notFound('User not found');
+    res.success(updated, 'User status updated');
   } catch (error) {
     console.error('Update user status error:', error);
     res.serverError('Failed to update user status');
   }
 };
 
-exports.deleteUserAccount = async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    if (req.user.id === id) {
-      return res.error('Cannot delete your own admin account');
-    }
-
-    const existing = await findUserById(id);
-    if (!existing) {
-      return res.notFound('User not found');
-    }
-
-    const deleted = await deleteUser(id);
-    res.success({ id: deleted.id, email: deleted.email }, 'User account deleted successfully');
-  } catch (error) {
-    console.error('Delete user error:', error);
-    if (error.code === '23503') {
-      return res.error('Cannot delete user with related records. Set status to inactive instead.', [], 409);
-    }
-    res.serverError('Failed to delete user');
-  }
-};
-
-exports.getAllNurses = async (req, res) => {
+exports.getAllCaregivers = async (req, res) => {
   try {
     const { verification_status, page = 1, limit = 20 } = req.query;
-
-    const nurses = await searchNurses({
+    const caregivers = await searchCaregivers({
       verification_status,
       page: parseInt(page),
       limit: parseInt(limit)
     });
-
-    res.success(nurses, null, {
+    res.success(caregivers, null, {
       page: parseInt(page),
       limit: parseInt(limit),
-      total: nurses.length
+      total: caregivers.length
     });
   } catch (error) {
-    console.error('Get nurses error:', error);
-    res.serverError('Failed to fetch nurses');
+    console.error('Get caregivers error:', error);
+    res.serverError('Failed to fetch caregivers');
   }
 };
 
-exports.getAllBookings = async (req, res) => {
-  try {
-    const { status, provider_type, page = 1, limit = 20 } = req.query;
-    const offset = (page - 1) * limit;
-
-    const bookings = await findAllBookings({
-      status,
-      provider_type,
-      limit: parseInt(limit),
-      offset: parseInt(offset)
-    });
-
-    res.success(bookings, null, {
-      page: parseInt(page),
-      limit: parseInt(limit),
-      total: bookings.length
-    });
-  } catch (error) {
-    console.error('Get bookings error:', error);
-    res.serverError('Failed to fetch bookings');
-  }
-};
-
-exports.getAllProviders = async (req, res) => {
-  try {
-    const { provider_type, verification_status, page = 1, limit = 20 } = req.query;
-    const offset = (page - 1) * limit;
-
-    let providers = [];
-    if (provider_type === 'CAREGIVER' || !provider_type) {
-      providers = await searchCaregivers({
-        verification_status,
-        page: parseInt(page),
-        limit: parseInt(limit)
-      });
-    } else if (provider_type === 'NURSE') {
-      providers = await searchNurses({
-        verification_status,
-        page: parseInt(page),
-        limit: parseInt(limit)
-      });
-    }
-
-    res.success(providers, null, {
-      page: parseInt(page),
-      limit: parseInt(limit),
-      total: providers.length
-    });
-  } catch (error) {
-    console.error('Get providers error:', error);
-    res.serverError('Failed to fetch providers');
-  }
-};
-
-exports.verifyProvider = async (req, res) => {
+exports.blockCaregiver = async (req, res) => {
   try {
     const { id } = req.params;
-    const { provider_type, verification_status, note } = req.body;
-
-    if (provider_type === 'CAREGIVER') {
-      await updateCaregiverVerification(id, verification_status, note);
-    } else if (provider_type === 'NURSE') {
-      await updateNurseVerification(id, verification_status, note);
+    // id can be caregiver profile id or user id — try profile first
+    let profile = await pool.query('SELECT * FROM caregiver_profiles WHERE id = $1', [id]);
+    if (!profile.rows.length) {
+      profile = await pool.query('SELECT * FROM caregiver_profiles WHERE user_id = $1', [id]);
     }
+    if (!profile.rows.length) return res.notFound('Caregiver not found');
 
-    await createNotification({
-      user_id: id,
-      title: 'Verification Status Updated',
-      message: `Your provider verification status has been updated to ${verification_status}.`,
-      type: 'VERIFICATION',
-      reference_id: id,
-      reference_type: 'provider'
-    });
+    const row = profile.rows[0];
+    await pool.query(
+      `UPDATE caregiver_profiles SET verification_status = 'SUSPENDED', is_available = false, updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
+      [row.id]
+    );
+    await adminUpdateUser(row.user_id, { status: 'blocked' });
 
-    res.success(null, 'Provider verification updated successfully');
+    res.success({ caregiver_id: row.id, user_id: row.user_id }, 'Caregiver blocked');
   } catch (error) {
-    console.error('Verify provider error:', error);
-    res.serverError('Failed to verify provider');
+    console.error('Block caregiver error:', error);
+    res.serverError('Failed to block caregiver');
   }
 };
 
-exports.getPendingDocuments = async (req, res) => {
-  try {
-    const { page = 1, limit = 20 } = req.query;
-    const offset = (page - 1) * limit;
-
-    const query = `
-      SELECT pd.*, u.name as provider_name, u.email as provider_email
-      FROM provider_documents pd
-      JOIN users u ON pd.provider_id = u.id
-      WHERE pd.verification_status = 'PENDING'
-      ORDER BY pd.submitted_at DESC
-      LIMIT $1 OFFSET $2
-    `;
-    const result = await pool.query(query, [parseInt(limit), parseInt(offset)]);
-
-    res.success(result.rows, null, {
-      page: parseInt(page),
-      limit: parseInt(limit),
-      total: result.rows.length
-    });
-  } catch (error) {
-    console.error('Get pending documents error:', error);
-    res.serverError('Failed to fetch pending documents');
-  }
-};
-
-exports.verifyDocument = async (req, res) => {
+exports.unblockCaregiver = async (req, res) => {
   try {
     const { id } = req.params;
-    const { verification_status, note } = req.body;
+    let profile = await pool.query('SELECT * FROM caregiver_profiles WHERE id = $1', [id]);
+    if (!profile.rows.length) {
+      profile = await pool.query('SELECT * FROM caregiver_profiles WHERE user_id = $1', [id]);
+    }
+    if (!profile.rows.length) return res.notFound('Caregiver not found');
 
-    const document = await updateDocVerification(id, verification_status, note);
+    const row = profile.rows[0];
+    await pool.query(
+      `UPDATE caregiver_profiles SET verification_status = 'APPROVED', is_available = true, updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
+      [row.id]
+    );
+    await adminUpdateUser(row.user_id, { status: 'active' });
 
-    await createNotification({
-      user_id: document.provider_id,
-      title: 'Document Verification Updated',
-      message: `Your document verification status has been updated to ${verification_status}.`,
-      type: 'VERIFICATION',
-      reference_id: id,
-      reference_type: 'document'
-    });
-
-    res.success(document, 'Document verification updated successfully');
+    res.success({ caregiver_id: row.id, user_id: row.user_id }, 'Caregiver unblocked');
   } catch (error) {
-    console.error('Verify document error:', error);
-    res.serverError('Failed to verify document');
-  }
-};
-
-exports.getAllPayments = async (req, res) => {
-  try {
-    const { status, payment_method, page = 1, limit = 20 } = req.query;
-    const offset = (page - 1) * limit;
-
-    const payments = await findAllPayments({
-      status,
-      payment_method,
-      limit: parseInt(limit),
-      offset: parseInt(offset)
-    });
-
-    res.success(payments, null, {
-      page: parseInt(page),
-      limit: parseInt(limit),
-      total: payments.length
-    });
-  } catch (error) {
-    console.error('Get payments error:', error);
-    res.serverError('Failed to fetch payments');
+    console.error('Unblock caregiver error:', error);
+    res.serverError('Failed to unblock caregiver');
   }
 };
 
 exports.createHospital = async (req, res) => {
   try {
     const { name, address, phone, email, location_lat, location_long, city, district, type, details } = req.body;
-    
-    let photoUrl = null;
-    if (req.file) {
-      photoUrl = req.file.path;
-    }
+    if (!name) return res.error('Hospital name is required');
 
+    let photoUrl = req.file ? req.file.path : null;
     const query = `
       INSERT INTO hospitals (name, address, phone, email, location_lat, location_long, city, district, type, photo, details)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
       RETURNING *
     `;
-    const values = [name, address, phone, email, location_lat, location_long, city, district, type, photoUrl, details];
-
-    const result = await pool.query(query, values);
-
+    const result = await pool.query(query, [
+      name, address, phone, email, location_lat, location_long, city, district, type, photoUrl, details
+    ]);
     res.created(result.rows[0], 'Hospital created successfully');
   } catch (error) {
     console.error('Create hospital error:', error);
@@ -374,8 +205,7 @@ exports.getAllHospitals = async (req, res) => {
   try {
     const { district, page = 1, limit = 20 } = req.query;
     const offset = (page - 1) * limit;
-
-    let query = 'SELECT * FROM hospitals WHERE is_active = true';
+    let query = 'SELECT * FROM hospitals WHERE 1=1';
     const values = [];
     let paramCount = 0;
 
@@ -385,11 +215,10 @@ exports.getAllHospitals = async (req, res) => {
       values.push(district);
     }
 
-    query += ' ORDER BY name LIMIT $' + (paramCount + 1) + ' OFFSET $' + (paramCount + 2);
+    query += ` ORDER BY name LIMIT $${paramCount + 1} OFFSET $${paramCount + 2}`;
     values.push(parseInt(limit), parseInt(offset));
 
     const result = await pool.query(query, values);
-
     res.success(result.rows, null, {
       page: parseInt(page),
       limit: parseInt(limit),
@@ -401,229 +230,48 @@ exports.getAllHospitals = async (req, res) => {
   }
 };
 
-exports.updateHospitalStatus = async (req, res) => {
+exports.updateHospital = async (req, res) => {
   try {
-    const { id } = req.params;
-    const { is_active } = req.body;
+    const existing = await findHospitalById(req.params.id);
+    if (!existing) return res.notFound('Hospital not found');
 
-    const query = 'UPDATE hospitals SET is_active = $1 WHERE id = $2 RETURNING *';
-    const result = await pool.query(query, [is_active, id]);
+    const photo = req.file ? req.file.path : existing.photo;
+    const updated = await updateHospital(req.params.id, {
+      name: req.body.name ?? existing.name,
+      address: req.body.address ?? existing.address,
+      phone: req.body.phone ?? existing.phone,
+      email: req.body.email ?? existing.email,
+      location_lat: req.body.location_lat ?? existing.location_lat,
+      location_long: req.body.location_long ?? existing.location_long,
+      city: req.body.city ?? existing.city,
+      district: req.body.district ?? existing.district,
+      type: req.body.type ?? existing.type,
+      is_active: req.body.is_active !== undefined ? req.body.is_active : existing.is_active
+    });
 
-    if (result.rows.length === 0) {
-      return res.notFound('Hospital not found');
+    if (photo && photo !== existing.photo) {
+      await pool.query('UPDATE hospitals SET photo = $1 WHERE id = $2', [photo, req.params.id]);
+      updated.photo = photo;
     }
 
-    res.success(result.rows[0], 'Hospital status updated successfully');
+    res.success(updated, 'Hospital updated successfully');
+  } catch (error) {
+    console.error('Update hospital error:', error);
+    res.serverError('Failed to update hospital');
+  }
+};
+
+exports.updateHospitalStatus = async (req, res) => {
+  try {
+    const { is_active } = req.body;
+    const result = await pool.query(
+      'UPDATE hospitals SET is_active = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 RETURNING *',
+      [is_active, req.params.id]
+    );
+    if (!result.rows.length) return res.notFound('Hospital not found');
+    res.success(result.rows[0], 'Hospital status updated');
   } catch (error) {
     console.error('Update hospital status error:', error);
     res.serverError('Failed to update hospital status');
-  }
-};
-
-exports.getRevenueStats = async (req, res) => {
-  try {
-    const { date_from, date_to } = req.query;
-
-    let query = `
-      SELECT 
-        DATE(created_at) as date,
-        COUNT(*) as transactions,
-        COALESCE(SUM(amount), 0) as revenue
-      FROM payments
-      WHERE status = 'COMPLETED'
-    `;
-    const values = [];
-    let paramCount = 0;
-
-    if (date_from) {
-      paramCount++;
-      query += ` AND created_at >= $${paramCount}`;
-      values.push(date_from);
-    }
-
-    if (date_to) {
-      paramCount++;
-      query += ` AND created_at <= $${paramCount}`;
-      values.push(date_to);
-    }
-
-    query += ' GROUP BY DATE(created_at) ORDER BY date DESC';
-
-    const result = await pool.query(query, values);
-
-    res.success(result.rows);
-  } catch (error) {
-    console.error('Get revenue stats error:', error);
-    res.serverError('Failed to fetch revenue stats');
-  }
-};
-
-// --- Medicines ---
-exports.getAllMedicines = async (req, res) => {
-  try {
-    const { category, is_active, page = 1, limit = 20 } = req.query;
-    const offset = (page - 1) * limit;
-
-    const medicines = await findAllMedicines({
-      category,
-      is_active: is_active !== undefined ? is_active === 'true' || is_active === true : undefined,
-      limit: parseInt(limit),
-      offset: parseInt(offset)
-    });
-
-    res.success(medicines, null, {
-      page: parseInt(page),
-      limit: parseInt(limit),
-      total: medicines.length
-    });
-  } catch (error) {
-    console.error('Get medicines error:', error);
-    res.serverError('Failed to fetch medicines');
-  }
-};
-
-exports.createMedicine = async (req, res) => {
-  try {
-    const {
-      name, generic_name, manufacturer, category, description,
-      strength, form, is_prescription_required
-    } = req.body;
-
-    if (!name) {
-      return res.error('Medicine name is required');
-    }
-
-    const medicine = await createMedicine({
-      name,
-      generic_name,
-      manufacturer,
-      category,
-      description,
-      strength,
-      form,
-      is_prescription_required: !!is_prescription_required
-    });
-
-    res.created(medicine, 'Medicine created successfully');
-  } catch (error) {
-    console.error('Create medicine error:', error);
-    res.serverError('Failed to create medicine');
-  }
-};
-
-exports.updateMedicine = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const existing = await findMedicineById(id);
-    if (!existing) {
-      return res.notFound('Medicine not found');
-    }
-
-    const medicine = await updateMedicine(id, {
-      name: req.body.name ?? existing.name,
-      generic_name: req.body.generic_name ?? existing.generic_name,
-      manufacturer: req.body.manufacturer ?? existing.manufacturer,
-      category: req.body.category ?? existing.category,
-      description: req.body.description ?? existing.description,
-      strength: req.body.strength ?? existing.strength,
-      form: req.body.form ?? existing.form,
-      is_prescription_required: req.body.is_prescription_required ?? existing.is_prescription_required,
-      is_active: req.body.is_active ?? existing.is_active
-    });
-
-    res.success(medicine, 'Medicine updated successfully');
-  } catch (error) {
-    console.error('Update medicine error:', error);
-    res.serverError('Failed to update medicine');
-  }
-};
-
-exports.deleteMedicine = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const deleted = await deleteMedicine(id);
-    if (!deleted) {
-      return res.notFound('Medicine not found');
-    }
-    res.success(deleted, 'Medicine deleted successfully');
-  } catch (error) {
-    console.error('Delete medicine error:', error);
-    res.serverError('Failed to delete medicine');
-  }
-};
-
-// --- Medicine orders ---
-exports.getAllOrders = async (req, res) => {
-  try {
-    const { status, date_from, date_to, page = 1, limit = 20 } = req.query;
-    const offset = (page - 1) * limit;
-
-    const orders = await MedicineOrder.findAll({
-      status,
-      date_from,
-      date_to,
-      limit: parseInt(limit),
-      offset: parseInt(offset)
-    });
-
-    res.success(orders, null, {
-      page: parseInt(page),
-      limit: parseInt(limit),
-      total: orders.length
-    });
-  } catch (error) {
-    console.error('Get orders error:', error);
-    res.serverError('Failed to fetch orders');
-  }
-};
-
-exports.getOrder = async (req, res) => {
-  try {
-    const order = await MedicineOrder.findById(req.params.id);
-    if (!order) {
-      return res.notFound('Order not found');
-    }
-    res.success(order);
-  } catch (error) {
-    console.error('Get order error:', error);
-    res.serverError('Failed to fetch order');
-  }
-};
-
-exports.updateOrderStatus = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { status, payment_status } = req.body;
-
-    const existing = await MedicineOrder.findById(id);
-    if (!existing) {
-      return res.notFound('Order not found');
-    }
-
-    let updated = existing;
-    if (status) {
-      updated = await MedicineOrder.updateStatus(id, status);
-    }
-    if (payment_status) {
-      updated = await MedicineOrder.updatePaymentStatus(id, payment_status);
-    }
-
-    if (!status && !payment_status) {
-      return res.error('status or payment_status is required');
-    }
-
-    await createNotification({
-      user_id: existing.user_id,
-      title: 'Order Status Updated',
-      message: `Your medicine order ${existing.order_number} status is now ${status || existing.status}.`,
-      type: 'ORDER',
-      reference_id: id,
-      reference_type: 'medicine_order'
-    });
-
-    res.success(updated, 'Order updated successfully');
-  } catch (error) {
-    console.error('Update order status error:', error);
-    res.serverError('Failed to update order status');
   }
 };

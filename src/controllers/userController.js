@@ -1,15 +1,10 @@
 const { findById: findUserById, updateUser } = require('../models/User');
 const { findByUserId: findBookingsByUserId } = require('../models/Booking');
-const { findByUserId: findPaymentsByUserId } = require('../models/Payment');
-const { findNotificationsByUserId, markAllNotificationsAsRead } = require('../models/Notification');
 
 exports.getMyProfile = async (req, res) => {
   try {
     const user = await findUserById(req.user.id);
-    
-    if (!user) {
-      return res.notFound('User not found');
-    }
+    if (!user) return res.notFound('User not found');
 
     res.success({
       id: user.id,
@@ -18,10 +13,12 @@ exports.getMyProfile = async (req, res) => {
       phone: user.phone,
       profile_photo: user.profile_photo,
       role: user.role,
+      status: user.status,
       is_verified: user.is_verified,
-      ekyc_status: user.ekyc_status,
       language_preference: user.language_preference,
       emergency_contact: user.emergency_contact,
+      address: user.address,
+      date_of_birth: user.date_of_birth,
       created_at: user.created_at
     });
   } catch (error) {
@@ -33,12 +30,10 @@ exports.getMyProfile = async (req, res) => {
 exports.updateMyProfile = async (req, res) => {
   try {
     const { name, email, phone, language_preference, emergency_contact, address, date_of_birth } = req.body;
-    
+
     let profilePhoto = req.body.profile_photo;
-    if (req.file) {
-      profilePhoto = req.file.path;
-    }
-    
+    if (req.file) profilePhoto = req.file.path;
+
     const updatedUser = await updateUser(req.user.id, {
       name,
       email,
@@ -50,18 +45,7 @@ exports.updateMyProfile = async (req, res) => {
       date_of_birth
     });
 
-    res.success({
-      id: updatedUser.id,
-      name: updatedUser.name,
-      email: updatedUser.email,
-      phone: updatedUser.phone,
-      profile_photo: updatedUser.profile_photo,
-      role: updatedUser.role,
-      language_preference: updatedUser.language_preference,
-      emergency_contact: updatedUser.emergency_contact,
-      address: updatedUser.address,
-      date_of_birth: updatedUser.date_of_birth
-    }, 'Profile updated successfully');
+    res.success(updatedUser, 'Profile updated successfully');
   } catch (error) {
     console.error('Update profile error:', error);
     res.serverError('Failed to update profile');
@@ -70,15 +54,9 @@ exports.updateMyProfile = async (req, res) => {
 
 exports.uploadAvatar = async (req, res) => {
   try {
-    if (!req.file) {
-      return res.error('No file uploaded');
-    }
-
-    const avatarUrl = req.file.path;
-    
-    await updateUser(req.user.id, { profile_photo: avatarUrl });
-
-    res.success({ profile_photo: avatarUrl }, 'Avatar uploaded successfully');
+    if (!req.file) return res.error('No file uploaded');
+    const updatedUser = await updateUser(req.user.id, { profile_photo: req.file.path });
+    res.success(updatedUser, 'Avatar uploaded successfully');
   } catch (error) {
     console.error('Upload avatar error:', error);
     res.serverError('Failed to upload avatar');
@@ -88,14 +66,11 @@ exports.uploadAvatar = async (req, res) => {
 exports.getMyBookings = async (req, res) => {
   try {
     const { page = 1, limit = 20, status } = req.query;
-    const offset = (page - 1) * limit;
-
     const bookings = await findBookingsByUserId(req.user.id, {
       status,
       limit: parseInt(limit),
-      offset: parseInt(offset)
+      offset: (parseInt(page) - 1) * parseInt(limit)
     });
-
     res.success(bookings, null, {
       page: parseInt(page),
       limit: parseInt(limit),
@@ -104,60 +79,5 @@ exports.getMyBookings = async (req, res) => {
   } catch (error) {
     console.error('Get bookings error:', error);
     res.serverError('Failed to get bookings');
-  }
-};
-
-exports.getMyPayments = async (req, res) => {
-  try {
-    const { page = 1, limit = 20, status } = req.query;
-    const offset = (page - 1) * limit;
-
-    const payments = await findPaymentsByUserId(req.user.id, {
-      status,
-      limit: parseInt(limit),
-      offset: parseInt(offset)
-    });
-
-    res.success(payments, null, {
-      page: parseInt(page),
-      limit: parseInt(limit),
-      total: payments.length
-    });
-  } catch (error) {
-    console.error('Get payments error:', error);
-    res.serverError('Failed to get payments');
-  }
-};
-
-exports.getMyNotifications = async (req, res) => {
-  try {
-    const { page = 1, limit = 20, is_read } = req.query;
-    const offset = (page - 1) * limit;
-
-    const notifications = await findNotificationsByUserId(req.user.id, {
-      is_read: is_read === 'true' ? true : is_read === 'false' ? false : undefined,
-      limit: parseInt(limit),
-      offset: parseInt(offset)
-    });
-
-    res.success(notifications, null, {
-      page: parseInt(page),
-      limit: parseInt(limit),
-      total: notifications.length
-    });
-  } catch (error) {
-    console.error('Get notifications error:', error);
-    res.serverError('Failed to get notifications');
-  }
-};
-
-exports.markNotificationsReadAll = async (req, res) => {
-  try {
-    await markAllNotificationsAsRead(req.user.id);
-
-    res.success(null, 'All notifications marked as read');
-  } catch (error) {
-    console.error('Mark notifications read error:', error);
-    res.serverError('Failed to mark notifications as read');
   }
 };

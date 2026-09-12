@@ -25,6 +25,14 @@ const responseHandler = (req, res, next) => {
     });
   };
 
+  res.badRequest = (message = 'Bad request', errors = []) => {
+    res.status(400).json({
+      success: false,
+      message,
+      errors
+    });
+  };
+
   res.notFound = (message = 'Resource not found') => {
     res.status(404).json({
       success: false,

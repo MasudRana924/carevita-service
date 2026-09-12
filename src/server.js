@@ -4,6 +4,7 @@ const cors = require('cors');
 const helmet = require('helmet');
 const swaggerUi = require('swagger-ui-express');
 const swaggerSpec = require('./config/swagger');
+const { initFirebase } = require('./config/firebase');
 const { apiLimiter } = require('./middleware/rateLimiter');
 const errorHandler = require('./middleware/errorHandler');
 const responseHandler = require('./middleware/responseHandler');
@@ -12,6 +13,8 @@ const pool = require('./config/database');
 
 const app = express();
 const PORT = process.env.PORT || 8000;
+
+initFirebase();
 
 // Security middleware (CSP relaxed so Swagger UI assets load)
 app.use(helmet({
