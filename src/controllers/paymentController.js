@@ -2,13 +2,12 @@ const crypto = require('crypto');
 const { findById, updatePaymentStatus } = require('../models/Booking');
 const Payment = require('../models/Payment');
 const {
+  grantAndSaveUserToken,
   ensureUserToken,
-  grantTokenFromBkash,
   createBkashPayment,
   executeBkashPayment,
   bkashConfig
 } = require('../services/bkashService');
-const { upsertToken } = require('../models/BkashToken');
 const { getCaregiverProfileById } = require('../models/CaregiverProfile');
 const { notifyUser } = require('../services/pushNotificationService');
 const {
@@ -20,31 +19,36 @@ const uniqueInvoice = () =>
   `CM${Date.now()}${crypto.randomBytes(3).toString('hex')}`.slice(0, 30);
 
 /**
- * Grant / refresh bKash token and store per user in bkash_tokens
+ * Grant bKash token for current user and save in bkash_tokens
  * POST /payments/bkash/token
  */
 exports.getToken = async (req, res) => {
   try {
-    const granted = await grantTokenFromBkash();
-    const expiresAt = new Date(Date.now() + bkashConfig.tokenTtlSeconds * 1000);
-    await upsertToken(req.user.id, granted.id_token, expiresAt);
+    const saved = await grantAndSaveUserToken(req.user.id);
 
     res.success(
       {
-        id_token: granted.id_token,
-        expires_at: expiresAt.toISOString(),
+        id_token: saved.id_token,
+        expires_at: saved.expires_at.toISOString(),
+        expires_in: saved.expires_in,
         script: bkashConfig.script
       },
       'bKash token granted'
     );
   } catch (error) {
-    console.error('bKash getToken error:', error.response?.data || error.message);
-    res.serverError('Failed to get bKash token');
+    console.error('bKash getToken error:', error.details || error.message);
+    res.error(
+      error.message || 'Failed to get bKash token',
+      error.details || [],
+      500
+    );
   }
 };
 
 /**
- * Create bKash payment for an accepted booking (Pay Now)
+ * Create payment:
+ * 1) grant token → save by user_id
+ * 2) create payment with authorization: id_token
  * POST /payments/bkash/create  { booking_id }
  */
 exports.createPayment = async (req, res) => {
@@ -64,32 +68,21 @@ exports.createPayment = async (req, res) => {
     const amount = payableAmount(booking);
     if (!(amount > 0)) return res.error('Invalid payable amount for this booking');
 
-    let idToken = await ensureUserToken(req.user.id);
+    // Always grant → DB save → then create with that id_token in authorization header
+    const { id_token: idToken } = await grantAndSaveUserToken(req.user.id);
     const merchantInvoice = uniqueInvoice();
 
-    let bkashRes;
-    try {
-      bkashRes = await createBkashPayment(idToken, {
-        amount: amount.toFixed(2),
-        merchantInvoiceNumber: merchantInvoice
-      });
-    } catch (firstErr) {
-      console.warn(
-        'bKash create retry after token refresh:',
-        firstErr.response?.data || firstErr.message
-      );
-      const granted = await grantTokenFromBkash();
-      const expiresAt = new Date(Date.now() + bkashConfig.tokenTtlSeconds * 1000);
-      await upsertToken(req.user.id, granted.id_token, expiresAt);
-      idToken = granted.id_token;
-      bkashRes = await createBkashPayment(idToken, {
-        amount: amount.toFixed(2),
-        merchantInvoiceNumber: merchantInvoice
-      });
-    }
+    const bkashRes = await createBkashPayment(idToken, {
+      amount: amount.toFixed(2),
+      merchantInvoiceNumber: merchantInvoice
+    });
 
     if (bkashRes?.errorCode && String(bkashRes.errorCode) !== '0000') {
       return res.error('bKash create payment failed', bkashRes);
+    }
+
+    if (!bkashRes?.paymentID) {
+      return res.error('bKash did not return paymentID', bkashRes);
     }
 
     const payment = await Payment.createPayment({
@@ -119,15 +112,19 @@ exports.createPayment = async (req, res) => {
   } catch (error) {
     console.error(
       'bKash createPayment error:',
-      error.response?.data || error.message,
+      error.details || error.response?.data || error.message,
       error.stack
     );
-    res.serverError('Failed to create payment');
+    res.error(
+      error.message || 'Failed to create payment',
+      error.details || [],
+      500
+    );
   }
 };
 
 /**
- * Execute bKash payment after user confirms in checkout
+ * Execute payment using user's saved id_token (refresh if needed)
  * POST /payments/bkash/execute  { paymentID, booking_id? }
  */
 exports.executePayment = async (req, res) => {
@@ -158,19 +155,16 @@ exports.executePayment = async (req, res) => {
       );
     }
 
+    // Use DB token; if missing/expired grant again and save
     let idToken = await ensureUserToken(req.user.id);
+
     let bkashRes;
     try {
       bkashRes = await executeBkashPayment(idToken, paymentID);
     } catch (firstErr) {
-      console.warn(
-        'bKash execute retry after token refresh:',
-        firstErr.response?.data || firstErr.message
-      );
-      const granted = await grantTokenFromBkash();
-      const expiresAt = new Date(Date.now() + bkashConfig.tokenTtlSeconds * 1000);
-      await upsertToken(req.user.id, granted.id_token, expiresAt);
-      idToken = granted.id_token;
+      console.warn('bKash execute retry after grant:', firstErr.details || firstErr.message);
+      const saved = await grantAndSaveUserToken(req.user.id);
+      idToken = saved.id_token;
       bkashRes = await executeBkashPayment(idToken, paymentID);
     }
 
@@ -236,9 +230,13 @@ exports.executePayment = async (req, res) => {
   } catch (error) {
     console.error(
       'bKash executePayment error:',
-      error.response?.data || error.message,
+      error.details || error.response?.data || error.message,
       error.stack
     );
-    res.serverError('Failed to execute payment');
+    res.error(
+      error.message || 'Failed to execute payment',
+      error.details || [],
+      500
+    );
   }
 };
