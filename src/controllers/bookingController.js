@@ -14,6 +14,11 @@ const {
   getCaregiverProfileById
 } = require('../models/CaregiverProfile');
 const { notifyUser } = require('../services/pushNotificationService');
+const {
+  canUserPayBooking,
+  payableAmount
+} = require('../services/paymentEligibility');
+const { bkashConfig } = require('../services/bkashService');
 
 const resolveCaregiverProfileId = async (userId) => {
   const profile = await getCaregiverProfileByUserId(userId);
@@ -151,7 +156,14 @@ exports.getBooking = async (req, res) => {
     }
 
     const history = await getStatusHistory(req.params.id);
-    res.success({ ...booking, history });
+    const can_pay = canUserPayBooking(booking, req.user.id);
+    res.success({
+      ...booking,
+      history,
+      can_pay,
+      pay_amount: can_pay ? payableAmount(booking) : 0,
+      bkash_script: bkashConfig.script
+    });
   } catch (error) {
     console.error('Get booking error:', error);
     res.serverError('Failed to fetch booking');

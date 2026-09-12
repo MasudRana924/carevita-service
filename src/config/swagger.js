@@ -15,6 +15,7 @@ CareMate core API — USER / CAREGIVER / ADMIN.
 **Push:** Register FCM token at \`POST /notifications/tokens\`.
 Booking create → caregiver push + inbox.
 Booking accept → user push + inbox (\`booking_id\` in payload).
+Payment success → caregiver push + inbox (\`PAYMENT_RECEIVED\`).
       `
     },
     servers: [{ url: '/api/v1', description: 'Current server' }],
@@ -25,6 +26,7 @@ Booking accept → user push + inbox (\`booking_id\` in payload).
       { name: 'Family Members', description: 'Family member CRUD' },
       { name: 'Caregiver', description: 'Caregiver profile, search, accept/reject' },
       { name: 'Bookings', description: 'Book caregiver, list, details' },
+      { name: 'Payments', description: 'bKash Pay Now (create / execute)' },
       { name: 'Hospitals', description: 'Hospital list' },
       { name: 'Inbox', description: 'Push notification inbox' },
       { name: 'Notifications', description: 'FCM device tokens' },

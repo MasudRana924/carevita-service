@@ -10,6 +10,7 @@ const adminRoutes = require('./adminRoutes');
 const hospitalRoutes = require('./hospitalRoutes');
 const inboxRoutes = require('./inboxRoutes');
 const notificationTokenRoutes = require('./notificationTokenRoutes');
+const paymentRoutes = require('./paymentRoutes');
 
 router.use('/auth', authRoutes);
 router.use('/user', userRoutes);
@@ -20,6 +21,7 @@ router.use('/admin', adminRoutes);
 router.use('/hospitals', hospitalRoutes);
 router.use('/inbox', inboxRoutes);
 router.use('/notifications', notificationTokenRoutes);
+router.use('/payments', paymentRoutes);
 
 router.get('/health', (req, res) => {
   res.status(200).json({

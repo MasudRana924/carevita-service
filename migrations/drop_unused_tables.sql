@@ -49,7 +49,6 @@ DROP TABLE IF EXISTS customer_wallets CASCADE;
 DROP TABLE IF EXISTS provider_wallets CASCADE;
 DROP TABLE IF EXISTS withdrawals CASCADE;
 DROP TABLE IF EXISTS payment_transactions CASCADE;
-DROP TABLE IF EXISTS payments CASCADE;
 DROP TABLE IF EXISTS provider_payment_accounts CASCADE;
 
 DROP TABLE IF EXISTS subscriptions CASCADE;

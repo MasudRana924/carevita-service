@@ -13,7 +13,8 @@
     { "key": "familyMemberId", "value": "" },
     { "key": "caregiverProfileId", "value": "" },
     { "key": "hospitalId", "value": "" },
-    { "key": "inboxId", "value": "" }
+    { "key": "inboxId", "value": "" },
+    { "key": "bkashPaymentId", "value": "" }
   ],
   "item": [
     {
@@ -397,6 +398,61 @@
                   "raw": "{\n  \"reason\": \"Plans changed\"\n}"
                 },
                 "url": "{{baseUrl}}/bookings/{{bookingId}}/cancel"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Payments (bKash)",
+          "item": [
+            {
+              "name": "Grant bKash Token",
+              "request": {
+                "method": "POST",
+                "header": [{ "key": "Authorization", "value": "Bearer {{userToken}}" }],
+                "url": "{{baseUrl}}/payments/bkash/token"
+              }
+            },
+            {
+              "name": "Create Payment (Pay Now)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "const j = pm.response.json();",
+                      "const pid = j.data?.paymentID;",
+                      "if (pid) pm.collectionVariables.set('bkashPaymentId', pid);"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  { "key": "Authorization", "value": "Bearer {{userToken}}" },
+                  { "key": "Content-Type", "value": "application/json" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"booking_id\": \"{{bookingId}}\"\n}"
+                },
+                "url": "{{baseUrl}}/payments/bkash/create"
+              }
+            },
+            {
+              "name": "Execute Payment",
+              "request": {
+                "method": "POST",
+                "header": [
+                  { "key": "Authorization", "value": "Bearer {{userToken}}" },
+                  { "key": "Content-Type", "value": "application/json" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"paymentID\": \"{{bkashPaymentId}}\",\n  \"booking_id\": \"{{bookingId}}\"\n}"
+                },
+                "url": "{{baseUrl}}/payments/bkash/execute"
               }
             }
           ]
