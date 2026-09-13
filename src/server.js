@@ -10,6 +10,7 @@ const errorHandler = require('./middleware/errorHandler');
 const responseHandler = require('./middleware/responseHandler');
 const routes = require('./routes');
 const pool = require('./config/database');
+const { ensureFamilyMembersSchema } = require('./database/ensureSchema');
 
 const app = express();
 const PORT = process.env.PORT || 8000;
@@ -98,12 +99,13 @@ app.listen(PORT, async () => {
   console.log(`API Base URL: http://localhost:${PORT}/api/v1`);
   console.log(`Swagger Docs: http://localhost:${PORT}/api-docs`);
   
-  // Test database connection
   try {
     await pool.query('SELECT NOW()');
     console.log('Database connection established successfully');
+    await ensureFamilyMembersSchema();
+    console.log('Family members schema verified');
   } catch (error) {
-    console.error('Database connection failed:', error.message);
+    console.error('Database startup check failed:', error.message);
   }
 });
 

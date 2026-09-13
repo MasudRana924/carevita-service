@@ -87,7 +87,11 @@ exports.listFamilyMembers = async (req, res) => {
     res.success(familyMembers);
   } catch (error) {
     console.error('List family members error:', error);
-    res.serverError('Failed to list family members');
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to list family members',
+      error: error.message
+    });
   }
 };
 

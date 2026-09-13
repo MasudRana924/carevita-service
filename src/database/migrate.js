@@ -263,6 +263,8 @@ const migrate = async () => {
     await client.query('ALTER TABLE family_members ADD COLUMN IF NOT EXISTS existing_conditions TEXT');
     await client.query('ALTER TABLE family_members ADD COLUMN IF NOT EXISTS allergies TEXT');
     await client.query('ALTER TABLE family_members ADD COLUMN IF NOT EXISTS current_medications TEXT');
+    await client.query('ALTER TABLE family_members ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP');
+    await client.query('ALTER TABLE family_members ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP');
 
     await client.query('CREATE INDEX IF NOT EXISTS idx_users_role ON users(role)');
     await client.query('CREATE INDEX IF NOT EXISTS idx_caregiver_district ON caregiver_profiles(district)');

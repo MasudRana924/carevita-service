@@ -1,5 +1,20 @@
 const pool = require('../config/database');
 
+const serializeMember = (row) => {
+  if (!row) return row;
+  const out = {};
+  for (const [key, value] of Object.entries(row)) {
+    if (typeof value === 'bigint') {
+      out[key] = value.toString();
+    } else if (Buffer.isBuffer(value)) {
+      out[key] = value.toString('utf8');
+    } else {
+      out[key] = value;
+    }
+  }
+  return out;
+};
+
 const createFamilyMember = async (memberData) => {
   const {
     user_id,
@@ -39,20 +54,29 @@ const createFamilyMember = async (memberData) => {
   ];
 
   const result = await pool.query(query, values);
-  return result.rows[0];
+  return serializeMember(result.rows[0]);
 };
 
 const findById = async (id) => {
   const result = await pool.query('SELECT * FROM family_members WHERE id = $1', [id]);
-  return result.rows[0];
+  return serializeMember(result.rows[0]);
 };
 
 const findByUserId = async (user_id) => {
-  const result = await pool.query(
-    'SELECT * FROM family_members WHERE user_id = $1 ORDER BY created_at DESC',
-    [user_id]
-  );
-  return result.rows;
+  try {
+    const result = await pool.query(
+      'SELECT * FROM family_members WHERE user_id = $1 ORDER BY created_at DESC',
+      [user_id]
+    );
+    return result.rows.map(serializeMember);
+  } catch (error) {
+    if (error.code !== '42703') throw error;
+    const result = await pool.query(
+      'SELECT * FROM family_members WHERE user_id = $1',
+      [user_id]
+    );
+    return result.rows.map(serializeMember);
+  }
 };
 
 const updateFamilyMember = async (id, memberData) => {
@@ -105,7 +129,7 @@ const updateFamilyMember = async (id, memberData) => {
   ];
 
   const result = await pool.query(query, values);
-  return result.rows[0];
+  return serializeMember(result.rows[0]);
 };
 
 const deleteFamilyMember = async (id) => {
@@ -113,7 +137,7 @@ const deleteFamilyMember = async (id) => {
     'DELETE FROM family_members WHERE id = $1 RETURNING *',
     [id]
   );
-  return result.rows[0];
+  return serializeMember(result.rows[0]);
 };
 
 const findByUserIdAndId = async (user_id, id) => {
@@ -121,7 +145,7 @@ const findByUserIdAndId = async (user_id, id) => {
     'SELECT * FROM family_members WHERE user_id = $1 AND id = $2',
     [user_id, id]
   );
-  return result.rows[0];
+  return serializeMember(result.rows[0]);
 };
 
 module.exports = {

@@ -13,6 +13,8 @@ ALTER TABLE family_members ADD COLUMN IF NOT EXISTS medical_history TEXT;
 ALTER TABLE family_members ADD COLUMN IF NOT EXISTS existing_conditions TEXT;
 ALTER TABLE family_members ADD COLUMN IF NOT EXISTS allergies TEXT;
 ALTER TABLE family_members ADD COLUMN IF NOT EXISTS current_medications TEXT;
+ALTER TABLE family_members ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE family_members ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
 
 CREATE TABLE IF NOT EXISTS notification_tokens (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
