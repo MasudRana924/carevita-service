@@ -3,7 +3,7 @@
  * /family-members:
  *   post:
  *     tags: [Family Members]
- *     summary: Add family member (required: photo, name, relationship, gender)
+ *     summary: "Add family member (required: photo, name, relationship, gender)"
  *     requestBody:
  *       required: true
  *       content:
@@ -24,7 +24,7 @@
  *               date_of_birth: { type: string, format: date, description: Optional }
  *               district: { type: string, example: Dhaka, description: Optional }
  *               thana: { type: string, example: Dhanmondi, description: Optional }
- *               house: { type: string, example: House 12, Road 5, description: Optional }
+ *               house: { type: string, example: "House 12, Road 5", description: Optional }
  *               emergency_contact_name: { type: string, description: Optional }
  *               emergency_contact_phone: { type: string, description: Optional }
  *               medical_history: { type: string, description: Optional }
