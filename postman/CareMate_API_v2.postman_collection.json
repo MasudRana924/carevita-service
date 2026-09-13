@@ -245,14 +245,16 @@
                 "body": {
                   "mode": "formdata",
                   "formdata": [
+                    { "key": "photo", "type": "file", "src": [] },
                     { "key": "name", "value": "Abba", "type": "text" },
                     { "key": "relationship", "value": "Father", "type": "text" },
-                    { "key": "phone", "value": "01700000000", "type": "text" },
-                    { "key": "blood_group", "value": "B+", "type": "text" },
-                    { "key": "district", "value": "Dhaka", "type": "text" },
-                    { "key": "thana", "value": "Dhanmondi", "type": "text" },
-                    { "key": "house", "value": "House 12, Road 5", "type": "text" },
-                    { "key": "photo", "type": "file", "src": [] }
+                    { "key": "gender", "value": "male", "type": "text" },
+                    { "key": "phone", "value": "01700000000", "type": "text", "disabled": true },
+                    { "key": "blood_group", "value": "B+", "type": "text", "disabled": true },
+                    { "key": "date_of_birth", "value": "1960-01-15", "type": "text", "disabled": true },
+                    { "key": "district", "value": "Dhaka", "type": "text", "disabled": true },
+                    { "key": "thana", "value": "Dhanmondi", "type": "text", "disabled": true },
+                    { "key": "house", "value": "House 12, Road 5", "type": "text", "disabled": true }
                   ]
                 },
                 "url": "{{baseUrl}}/family-members"

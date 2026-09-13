@@ -17,6 +17,7 @@ exports.addFamilyMember = async (req, res) => {
     const {
       name,
       relationship,
+      relation,
       phone,
       blood_group,
       date_of_birth,
@@ -32,22 +33,28 @@ exports.addFamilyMember = async (req, res) => {
       current_medications
     } = req.body;
 
+    const relationshipValue = relationship || relation;
+
+    if (!req.file) {
+      return res.error('photo is required');
+    }
     if (!name) {
       return res.error('name is required');
     }
-
-    let photoUrl = null;
-    if (req.file) {
-      photoUrl = req.file.path;
+    if (!relationshipValue) {
+      return res.error('relationship is required');
+    }
+    if (!gender) {
+      return res.error('gender is required');
     }
 
     const familyMember = await createFamilyMember({
       user_id: req.user.id,
       name,
-      photo: photoUrl,
+      photo: req.file.path,
       date_of_birth: emptyToNull(date_of_birth),
-      gender: emptyToNull(gender),
-      relationship: emptyToNull(relationship),
+      gender,
+      relationship: relationshipValue,
       blood_group: emptyToNull(blood_group),
       phone: emptyToNull(phone),
       district: emptyToNull(district),
@@ -103,6 +110,7 @@ exports.updateFamilyMember = async (req, res) => {
     const {
       name,
       relationship,
+      relation,
       phone,
       blood_group,
       date_of_birth,
@@ -133,7 +141,7 @@ exports.updateFamilyMember = async (req, res) => {
       photo: photoUrl,
       date_of_birth: emptyToNull(date_of_birth),
       gender: emptyToNull(gender),
-      relationship: emptyToNull(relationship),
+      relationship: emptyToNull(relationship || relation),
       blood_group: emptyToNull(blood_group),
       phone: emptyToNull(phone),
       district: emptyToNull(district),

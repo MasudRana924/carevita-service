@@ -3,27 +3,34 @@
  * /family-members:
  *   post:
  *     tags: [Family Members]
- *     summary: Add family member
+ *     summary: Add family member (required: photo, name, relationship, gender)
  *     requestBody:
  *       required: true
  *       content:
  *         multipart/form-data:
  *           schema:
  *             type: object
- *             required: [name]
+ *             required: [name, relationship, gender, photo]
  *             properties:
- *               name: { type: string, example: Abba }
- *               relationship: { type: string, example: Father }
- *               phone: { type: string }
- *               blood_group: { type: string, example: B+ }
- *               date_of_birth: { type: string, format: date }
- *               gender: { type: string, example: male }
- *               district: { type: string, example: Dhaka }
- *               thana: { type: string, example: Dhanmondi }
- *               house: { type: string, example: House 12, Road 5 }
  *               photo:
  *                 type: string
  *                 format: binary
+ *                 description: Required
+ *               name: { type: string, example: Abba, description: Required }
+ *               relationship: { type: string, example: Father, description: Required }
+ *               gender: { type: string, example: male, description: Required }
+ *               phone: { type: string, description: Optional }
+ *               blood_group: { type: string, example: B+, description: Optional }
+ *               date_of_birth: { type: string, format: date, description: Optional }
+ *               district: { type: string, example: Dhaka, description: Optional }
+ *               thana: { type: string, example: Dhanmondi, description: Optional }
+ *               house: { type: string, example: House 12, Road 5, description: Optional }
+ *               emergency_contact_name: { type: string, description: Optional }
+ *               emergency_contact_phone: { type: string, description: Optional }
+ *               medical_history: { type: string, description: Optional }
+ *               existing_conditions: { type: string, description: Optional }
+ *               allergies: { type: string, description: Optional }
+ *               current_medications: { type: string, description: Optional }
  *     responses:
  *       201:
  *         description: Family member created
@@ -64,12 +71,19 @@
  *             properties:
  *               name: { type: string }
  *               relationship: { type: string }
+ *               gender: { type: string, example: male }
  *               phone: { type: string }
  *               blood_group: { type: string }
  *               date_of_birth: { type: string, format: date }
  *               district: { type: string }
  *               thana: { type: string }
  *               house: { type: string }
+ *               emergency_contact_name: { type: string }
+ *               emergency_contact_phone: { type: string }
+ *               medical_history: { type: string }
+ *               existing_conditions: { type: string }
+ *               allergies: { type: string }
+ *               current_medications: { type: string }
  *               photo:
  *                 type: string
  *                 format: binary
