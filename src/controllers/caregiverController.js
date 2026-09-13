@@ -6,6 +6,7 @@ const {
   searchCaregivers
 } = require('../models/CaregiverProfile');
 const { findByProviderId: findBookingsByProviderId } = require('../models/Booking');
+const Wallet = require('../models/Wallet');
 
 exports.createProfile = async (req, res) => {
   try {
@@ -146,5 +147,27 @@ exports.getMyBookings = async (req, res) => {
   } catch (error) {
     console.error('Get caregiver bookings error:', error);
     res.serverError('Failed to get caregiver bookings');
+  }
+};
+
+exports.getMyWallet = async (req, res) => {
+  try {
+    const wallet = await Wallet.getOrCreateWallet(null, {
+      userId: req.user.id,
+      ownerType: 'CAREGIVER'
+    });
+    const transactions = await Wallet.listTransactions(wallet.id, {
+      limit: parseInt(req.query.limit || 20, 10),
+      offset: parseInt(req.query.offset || 0, 10)
+    });
+    res.success({
+      balance: Number(wallet.balance),
+      currency: wallet.currency || 'BDT',
+      owner_type: wallet.owner_type,
+      transactions
+    });
+  } catch (error) {
+    console.error('Get caregiver wallet error:', error);
+    res.serverError('Failed to fetch wallet');
   }
 };

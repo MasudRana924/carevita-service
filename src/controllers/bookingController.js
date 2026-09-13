@@ -65,7 +65,8 @@ exports.createBooking = async (req, res) => {
     const basePrice = service_type === 'HOSPITAL_ASSISTANCE' ? 300 : 500;
     const hourlyRate = Number(caregiver.hourly_rate) || 250;
     const service_charge = basePrice + hourlyRate * parseInt(duration_hours);
-    const platform_fee = 100;
+    // Platform takes 5% of service charge
+    const platform_fee = Number((service_charge * 0.05).toFixed(2));
     const total_amount = service_charge + platform_fee;
     const advance_percentage = 50;
     const advance_amount = total_amount * (advance_percentage / 100);

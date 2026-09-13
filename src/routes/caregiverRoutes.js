@@ -10,6 +10,7 @@ router.get('/profile', authenticate, authorize('CAREGIVER'), caregiverController
 router.put('/profile', authenticate, authorize('CAREGIVER'), upload.single('profile_photo'), caregiverController.updateMyProfile);
 router.get('/search', caregiverController.searchCaregivers);
 router.get('/bookings/my', authenticate, authorize('CAREGIVER'), caregiverController.getMyBookings);
+router.get('/wallet', authenticate, authorize('CAREGIVER'), caregiverController.getMyWallet);
 router.post('/bookings/:id/accept', authenticate, authorize('CAREGIVER'), bookingController.acceptBooking);
 router.post('/bookings/:id/reject', authenticate, authorize('CAREGIVER'), bookingController.rejectBooking);
 router.get('/:id', caregiverController.viewCaregiverProfile);

@@ -15,7 +15,7 @@ CareMate core API — USER / CAREGIVER / ADMIN.
 **Push:** Register FCM token at \`POST /notifications/tokens\`.
 Booking create → caregiver push + inbox.
 Booking accept → user push + inbox (\`booking_id\` in payload).
-Payment success → caregiver push + inbox (\`PAYMENT_RECEIVED\`).
+Payment success → caregiver push (\`PAYMENT_RECEIVED\` / start booking) + wallet credit (5% platform / 95% caregiver).
       `
     },
     servers: [{ url: '/api/v1', description: 'Current server' }],

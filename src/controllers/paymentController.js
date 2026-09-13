@@ -8,6 +8,7 @@ const {
   executeBkashPayment,
   bkashConfig
 } = require('../services/bkashService');
+const { distributePaymentToWallets } = require('../services/walletService');
 const { getCaregiverProfileById } = require('../models/CaregiverProfile');
 const { notifyUser } = require('../services/pushNotificationService');
 const {
@@ -192,38 +193,65 @@ exports.executePayment = async (req, res) => {
       bkash_payment_id: paymentID
     });
 
+    // Booking payment status: PAID (else remains PENDING/unpaid)
     const updatedBooking = await updatePaymentStatus(booking.id, 'PAID', 'BKASH');
+
+    const paidAmount = Number(bkashRes.amount || payment.amount || 0);
+    const trxId = bkashRes.trxID || bkashRes.trxId || null;
+
+    let walletResult = null;
+    let caregiverUserId = null;
 
     try {
       if (booking.provider_type === 'CAREGIVER' && booking.provider_id) {
         const caregiver = await getCaregiverProfileById(booking.provider_id);
-        if (caregiver?.user_id) {
+        caregiverUserId = caregiver?.user_id || null;
+
+        if (caregiverUserId) {
+          walletResult = await distributePaymentToWallets({
+            payment: updatedPayment,
+            booking,
+            caregiverUserId,
+            paidAmount,
+            trxId
+          });
+
           await notifyUser({
-            userId: caregiver.user_id,
-            title: 'Payment Received',
-            body: `User paid for booking ${booking.booking_number}. Amount: ৳${Number(payment.amount).toFixed(2)}`,
+            userId: caregiverUserId,
+            title: 'Payment Received — Start Booking',
+            body: `User paid for booking ${booking.booking_number}. You can start the booking now.`,
             type: 'PAYMENT_RECEIVED',
             bookingId: booking.id,
             referenceId: booking.id,
             referenceType: 'booking',
             extraData: {
               booking_number: booking.booking_number,
-              amount: String(payment.amount),
-              trx_id: String(bkashRes.trxID || bkashRes.trxId || ''),
-              screen: 'inbox'
+              amount: String(paidAmount),
+              trx_id: String(trxId || ''),
+              payment_status: 'PAID',
+              action: 'START_BOOKING',
+              screen: 'booking_details'
             }
           });
         }
       }
-    } catch (notifyErr) {
-      console.error('Notify caregiver on payment failed:', notifyErr.message);
+    } catch (postPayErr) {
+      console.error('Post-payment wallet/notify failed:', postPayErr.message);
     }
 
     res.success(
       {
         booking: updatedBooking,
         payment: updatedPayment,
-        bkash: bkashRes
+        bkash: bkashRes,
+        wallet: walletResult
+          ? {
+              platform_fee: walletResult.platform_fee,
+              caregiver_earning: walletResult.caregiver_earning,
+              paid_amount: walletResult.paid_amount,
+              skipped: walletResult.skipped || false
+            }
+          : null
       },
       'Payment completed successfully'
     );
