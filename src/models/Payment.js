@@ -60,19 +60,22 @@ const markExecuted = async (id, {
   execute_response = {},
   bkash_payment_id = null
 }) => {
+  // paid_at is set in JS so $1 is not reused as both VARCHAR and a CASE operand
+  // (PostgreSQL: "inconsistent types deduced for parameter $1")
+  const paidAt = status === 'COMPLETED' ? new Date() : null;
   const result = await pool.query(
     `
     UPDATE payments
     SET status = $1,
         trx_id = COALESCE($2, trx_id),
-        execute_response = $3,
+        execute_response = $3::jsonb,
         bkash_payment_id = COALESCE($4, bkash_payment_id),
-        paid_at = CASE WHEN $1 = 'COMPLETED' THEN CURRENT_TIMESTAMP ELSE paid_at END,
+        paid_at = COALESCE($6, paid_at),
         updated_at = CURRENT_TIMESTAMP
     WHERE id = $5
     RETURNING *
     `,
-    [status, trx_id, JSON.stringify(execute_response || {}), bkash_payment_id, id]
+    [status, trx_id, JSON.stringify(execute_response || {}), bkash_payment_id, id, paidAt]
   );
   return result.rows[0];
 };
