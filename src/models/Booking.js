@@ -279,15 +279,17 @@ const clearProvider = async (id, status = 'SEARCHING_PROVIDER') => {
 };
 
 const updatePaymentStatus = async (id, payment_status, payment_method = null) => {
+  const paidStatus = String(payment_status).toUpperCase() === 'PAID' ? 'PAYMENT_PAID' : null;
   const query = `
     UPDATE bookings
     SET payment_status = $1,
         payment_method = COALESCE($3, payment_method),
+        status = COALESCE($4, status),
         updated_at = CURRENT_TIMESTAMP
     WHERE id = $2
     RETURNING *
   `;
-  const result = await pool.query(query, [payment_status, id, payment_method]);
+  const result = await pool.query(query, [payment_status, id, payment_method, paidStatus]);
   return result.rows[0];
 };
 

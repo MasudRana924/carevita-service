@@ -1,5 +1,5 @@
 const crypto = require('crypto');
-const { findById, updatePaymentStatus } = require('../models/Booking');
+const { findById, updatePaymentStatus, addStatusHistory } = require('../models/Booking');
 const Payment = require('../models/Payment');
 const {
   grantAndSaveUserToken,
@@ -149,7 +149,10 @@ exports.executePayment = async (req, res) => {
     const booking = await findById(payment.booking_id);
     if (!booking) return res.notFound('Booking not found');
 
-    if (String(booking.payment_status || '').toUpperCase() === 'PAID') {
+    if (
+      String(booking.payment_status || '').toUpperCase() === 'PAID' ||
+      String(booking.status || '').toUpperCase() === 'PAYMENT_PAID'
+    ) {
       return res.success(
         { booking, payment, already_paid: true },
         'Booking already paid'
@@ -193,8 +196,18 @@ exports.executePayment = async (req, res) => {
       bkash_payment_id: paymentID
     });
 
-    // Booking payment status: PAID (else remains PENDING/unpaid)
     const updatedBooking = await updatePaymentStatus(booking.id, 'PAID', 'BKASH');
+    try {
+      await addStatusHistory(
+        booking.id,
+        booking.status,
+        'PAYMENT_PAID',
+        req.user.id,
+        'Payment completed via bKash'
+      );
+    } catch (historyErr) {
+      console.error('Payment status history failed:', historyErr.message);
+    }
 
     const paidAmount = Number(bkashRes.amount || payment.amount || 0);
     const trxId = bkashRes.trxID || bkashRes.trxId || null;
@@ -229,6 +242,7 @@ exports.executePayment = async (req, res) => {
               amount: String(paidAmount),
               trx_id: String(trxId || ''),
               payment_status: 'PAID',
+              status: 'PAYMENT_PAID',
               action: 'START_BOOKING',
               screen: 'booking_details'
             }
