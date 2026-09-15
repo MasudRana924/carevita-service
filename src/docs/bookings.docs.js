@@ -118,65 +118,50 @@
  * /bookings/{id}/start:
  *   post:
  *     tags: [Bookings]
- *     summary: Start service
+ *     summary: Start service (caregiver, after PAYMENT_PAID)
  *     parameters:
  *       - in: path
  *         name: id
  *         required: true
  *         schema: { type: string, format: uuid }
- *     requestBody:
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               latitude: { type: number }
- *               longitude: { type: number }
  *     responses:
  *       200:
- *         description: Service started
- *
- * /bookings/{id}/pickup:
- *   post:
- *     tags: [Bookings]
- *     summary: Mark patient picked up
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema: { type: string, format: uuid }
- *     requestBody:
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               latitude: { type: number }
- *               longitude: { type: number }
- *               note: { type: string }
- *     responses:
- *       200:
- *         description: Pickup recorded
+ *         description: Status SERVICE_IN_PROGRESS; user gets SERVICE_STARTED push
  *
  * /bookings/{id}/complete:
  *   post:
  *     tags: [Bookings]
- *     summary: Complete service
+ *     summary: End service (caregiver, after SERVICE_IN_PROGRESS)
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       200:
+ *         description: Status SERVICE_COMPLETED; user push opens booking details then review modal if unpaid review; earning settled to wallet
+ *
+ * /bookings/{id}/review:
+ *   post:
+ *     tags: [Bookings]
+ *     summary: Submit star rating only (user, after SERVICE_COMPLETED)
  *     parameters:
  *       - in: path
  *         name: id
  *         required: true
  *         schema: { type: string, format: uuid }
  *     requestBody:
+ *       required: true
  *       content:
  *         application/json:
  *           schema:
  *             type: object
+ *             required: [rating]
  *             properties:
- *               completion_note: { type: string }
+ *               rating: { type: integer, minimum: 1, maximum: 5, example: 5 }
  *     responses:
- *       200:
- *         description: Completed
+ *       201:
+ *         description: Star review saved; caregiver average rating updated
  *
  * /bookings/{id}/cancel:
  *   post:
@@ -197,27 +182,4 @@
  *     responses:
  *       200:
  *         description: Cancelled
- *
- * /bookings/{id}/review:
- *   post:
- *     tags: [Bookings]
- *     summary: Submit review for booking
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema: { type: string, format: uuid }
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required: [rating]
- *             properties:
- *               rating: { type: integer, minimum: 1, maximum: 5 }
- *               comment: { type: string }
- *     responses:
- *       200:
- *         description: Review submitted
  */

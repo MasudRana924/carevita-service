@@ -3,8 +3,12 @@ require('dotenv').config();
 
 const connectionString = process.env.DATABASE_URL || 'postgresql://neondb_owner:npg_NzZLWrm23tpa@ep-solitary-mud-ay8purqj-pooler.c-5.us-east-2.aws.neon.tech/neondb?sslmode=verify-full';
 
+const isLocalhost = /localhost|127\.0\.0\.1/.test(connectionString);
+
 const pool = new Pool({
   connectionString,
+  // Neon + Render Postgres require SSL. verify-full often fails on Render (no CA bundle).
+  ssl: isLocalhost ? false : { rejectUnauthorized: false },
   max: 20,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 20000,

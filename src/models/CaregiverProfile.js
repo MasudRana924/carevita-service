@@ -170,6 +170,20 @@ const updateRating = async (id, newRating) => {
   return result.rows[0];
 };
 
+const incrementCompletedBookings = async (id) => {
+  const result = await pool.query(
+    `
+    UPDATE caregiver_profiles
+    SET completed_bookings = COALESCE(completed_bookings, 0) + 1,
+        updated_at = CURRENT_TIMESTAMP
+    WHERE id = $1
+    RETURNING *
+    `,
+    [id]
+  );
+  return result.rows[0];
+};
+
 module.exports = {
   createCaregiverProfile,
   getCaregiverProfileByUserId,
@@ -177,5 +191,6 @@ module.exports = {
   updateCaregiverProfile,
   updateVerificationStatus,
   searchCaregivers,
-  updateRating
+  updateRating,
+  incrementCompletedBookings
 };

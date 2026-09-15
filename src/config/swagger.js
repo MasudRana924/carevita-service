@@ -16,6 +16,10 @@ CareMate core API — USER / CAREGIVER / ADMIN.
 Booking create → caregiver push + inbox.
 Booking accept → user push + inbox (\`booking_id\` in payload).
 Payment success → caregiver push (\`PAYMENT_RECEIVED\` / start booking) + wallet credit (5% platform / 95% caregiver).
+Caregiver start → user push (\`SERVICE_STARTED\`).
+1 hour before start → caregiver push (\`SERVICE_START_REMINDER\`).
+Caregiver end → user push (\`SERVICE_COMPLETED\` / open booking details; review modal if \`can_review\`) + caregiver wallet settle (\`EARNING_SETTLED\`).
+User star review → \`POST /bookings/{id}/review\` \`{ rating: 1-5 }\` (no message).
       `
     },
     servers: [{ url: '/api/v1', description: 'Current server' }],

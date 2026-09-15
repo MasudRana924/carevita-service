@@ -8,6 +8,9 @@ router.get('/', authenticate, bookingController.getBookings);
 router.get('/:id', authenticate, bookingController.getBooking);
 router.post('/:id/accept', authenticate, bookingController.acceptBooking);
 router.post('/:id/reject', authenticate, bookingController.rejectBooking);
+router.post('/:id/start', authenticate, bookingController.startBooking);
+router.post('/:id/complete', authenticate, bookingController.completeBooking);
+router.post('/:id/review', authenticate, bookingController.submitReview);
 router.post('/:id/cancel', authenticate, bookingController.cancelBooking);
 
 module.exports = router;

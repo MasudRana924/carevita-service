@@ -11,9 +11,14 @@ const responseHandler = require('./middleware/responseHandler');
 const routes = require('./routes');
 const pool = require('./config/database');
 const { ensureFamilyMembersSchema } = require('./database/ensureSchema');
+const migrate = require('./database/migrate');
+const { startStartReminderJob } = require('./services/startReminderJob');
 
 const app = express();
 const PORT = process.env.PORT || 8000;
+
+// Render / proxies set X-Forwarded-For; without this, rate-limit blocks all /api routes
+app.set('trust proxy', 1);
 
 initFirebase();
 
@@ -92,18 +97,20 @@ app.use((req, res) => {
 // Error handling middleware
 app.use(errorHandler);
 
-// Start server
-app.listen(PORT, async () => {
+// Bind 0.0.0.0 so Render health checks can reach the service
+app.listen(PORT, '0.0.0.0', async () => {
   console.log(`CareMate API Server running on port ${PORT}`);
   console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
   console.log(`API Base URL: http://localhost:${PORT}/api/v1`);
   console.log(`Swagger Docs: http://localhost:${PORT}/api-docs`);
-  
+
   try {
     await pool.query('SELECT NOW()');
     console.log('Database connection established successfully');
+    await migrate({ closePool: false });
     await ensureFamilyMembersSchema();
-    console.log('Family members schema verified');
+    console.log('Database schema verified');
+    startStartReminderJob();
   } catch (error) {
     console.error('Database startup check failed:', error.message);
   }

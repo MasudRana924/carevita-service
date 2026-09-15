@@ -169,7 +169,7 @@
  * /caregiver/reviews/my:
  *   get:
  *     tags: [Caregiver]
- *     summary: My reviews
+ *     summary: My star reviews
  *     parameters:
  *       - in: query
  *         name: page
@@ -179,7 +179,33 @@
  *         schema: { type: integer, default: 20 }
  *     responses:
  *       200:
- *         description: Reviews
+ *         description: Average rating + star reviews (no comments)
+ *
+ * /caregiver/bookings/{id}/start:
+ *   post:
+ *     tags: [Caregiver]
+ *     summary: Start assigned booking (after PAYMENT_PAID)
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       200:
+ *         description: Service started
+ *
+ * /caregiver/bookings/{id}/complete:
+ *   post:
+ *     tags: [Caregiver]
+ *     summary: End assigned booking (after SERVICE_IN_PROGRESS)
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       200:
+ *         description: Service completed; earning settled to wallet
  *
  * /caregiver/{id}:
  *   get:

@@ -4,7 +4,7 @@ require('dotenv').config();
 /**
  * Core CareMate schema (v2) — USER / CAREGIVER / ADMIN only
  */
-const migrate = async () => {
+const migrate = async ({ closePool = true } = {}) => {
   const client = await pool.connect();
   try {
     console.log('Starting CareMate core migration...');
@@ -161,10 +161,15 @@ const migrate = async () => {
       CREATE TABLE IF NOT EXISTS booking_status_history (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         booking_id UUID NOT NULL REFERENCES bookings(id) ON DELETE CASCADE,
+        from_status VARCHAR(50),
+        to_status VARCHAR(50),
         old_status VARCHAR(50),
         new_status VARCHAR(50),
         changed_by UUID,
+        notes TEXT,
         note TEXT,
+        location_lat DECIMAL(10, 8),
+        location_long DECIMAL(11, 8),
         latitude DECIMAL(10, 8),
         longitude DECIMAL(11, 8),
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -265,6 +270,11 @@ const migrate = async () => {
     await client.query('ALTER TABLE family_members ADD COLUMN IF NOT EXISTS current_medications TEXT');
     await client.query('ALTER TABLE family_members ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP');
     await client.query('ALTER TABLE family_members ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP');
+    await client.query('ALTER TABLE booking_status_history ADD COLUMN IF NOT EXISTS from_status VARCHAR(50)');
+    await client.query('ALTER TABLE booking_status_history ADD COLUMN IF NOT EXISTS to_status VARCHAR(50)');
+    await client.query('ALTER TABLE booking_status_history ADD COLUMN IF NOT EXISTS notes TEXT');
+    await client.query('ALTER TABLE booking_status_history ADD COLUMN IF NOT EXISTS location_lat DECIMAL(10, 8)');
+    await client.query('ALTER TABLE booking_status_history ADD COLUMN IF NOT EXISTS location_long DECIMAL(11, 8)');
 
     await client.query('CREATE INDEX IF NOT EXISTS idx_users_role ON users(role)');
     await client.query('CREATE INDEX IF NOT EXISTS idx_caregiver_district ON caregiver_profiles(district)');
@@ -324,6 +334,26 @@ const migrate = async () => {
     await client.query('CREATE INDEX IF NOT EXISTS idx_wallet_tx_wallet ON wallet_transactions(wallet_id)');
     await client.query('CREATE INDEX IF NOT EXISTS idx_wallet_tx_payment ON wallet_transactions(payment_id)');
 
+    await client.query('ALTER TABLE bookings ADD COLUMN IF NOT EXISTS started_at TIMESTAMP');
+    await client.query('ALTER TABLE bookings ADD COLUMN IF NOT EXISTS earning_settled_at TIMESTAMP');
+    await client.query('ALTER TABLE bookings ADD COLUMN IF NOT EXISTS payout_status VARCHAR(50) DEFAULT \'PENDING\'');
+    await client.query('ALTER TABLE bookings ADD COLUMN IF NOT EXISTS start_reminder_sent_at TIMESTAMP');
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS reviews (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        booking_id UUID NOT NULL UNIQUE REFERENCES bookings(id) ON DELETE CASCADE,
+        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        caregiver_profile_id UUID NOT NULL REFERENCES caregiver_profiles(id) ON DELETE CASCADE,
+        rating INTEGER NOT NULL CHECK (rating >= 1 AND rating <= 5),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    await client.query('CREATE INDEX IF NOT EXISTS idx_reviews_caregiver ON reviews(caregiver_profile_id)');
+    await client.query('CREATE INDEX IF NOT EXISTS idx_reviews_user ON reviews(user_id)');
+    await client.query('CREATE INDEX IF NOT EXISTS idx_bookings_status ON bookings(status)');
+
     await client.query('COMMIT');
     console.log('Core migration completed successfully');
   } catch (error) {
@@ -332,7 +362,7 @@ const migrate = async () => {
     throw error;
   } finally {
     client.release();
-    await pool.end();
+    if (closePool) await pool.end();
   }
 };
 

@@ -28,20 +28,26 @@ const resolveServiceAccount = () => ({
 });
 
 const initFirebase = () => {
-  if (getApps().length > 0) {
+  try {
+    if (getApps().length > 0) {
+      messaging = getMessaging();
+      return messaging;
+    }
+
+    const serviceAccount = resolveServiceAccount();
+    initializeApp({
+      credential: cert(serviceAccount),
+      projectId: serviceAccount.project_id
+    });
+
     messaging = getMessaging();
+    console.log('Firebase Admin initialized');
     return messaging;
+  } catch (error) {
+    console.error('Firebase Admin init skipped:', error.message);
+    messaging = null;
+    return null;
   }
-
-  const serviceAccount = resolveServiceAccount();
-  initializeApp({
-    credential: cert(serviceAccount),
-    projectId: serviceAccount.project_id
-  });
-
-  messaging = getMessaging();
-  console.log('Firebase Admin initialized');
-  return messaging;
 };
 
 const getFirebaseMessaging = () => {

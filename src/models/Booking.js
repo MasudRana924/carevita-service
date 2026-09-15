@@ -308,10 +308,36 @@ const cancel = async (id, cancellation_reason, cancelled_by) => {
   return result.rows[0];
 };
 
+const startService = async (id) => {
+  const query = `
+    UPDATE bookings
+    SET status = 'SERVICE_IN_PROGRESS',
+        started_at = CURRENT_TIMESTAMP,
+        updated_at = CURRENT_TIMESTAMP
+    WHERE id = $1
+    RETURNING *
+  `;
+  const result = await pool.query(query, [id]);
+  return result.rows[0];
+};
+
 const complete = async (id) => {
   const query = `
     UPDATE bookings 
     SET status = 'SERVICE_COMPLETED', completed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+    WHERE id = $1
+    RETURNING *
+  `;
+  const result = await pool.query(query, [id]);
+  return result.rows[0];
+};
+
+const settleEarning = async (id) => {
+  const query = `
+    UPDATE bookings
+    SET earning_settled_at = COALESCE(earning_settled_at, CURRENT_TIMESTAMP),
+        payout_status = 'SETTLED_TO_WALLET',
+        updated_at = CURRENT_TIMESTAMP
     WHERE id = $1
     RETURNING *
   `;
@@ -386,7 +412,9 @@ module.exports = {
   clearProvider,
   updatePaymentStatus,
   cancel,
+  startService,
   complete,
+  settleEarning,
   addStatusHistory,
   getStatusHistory,
   getActiveBookings,

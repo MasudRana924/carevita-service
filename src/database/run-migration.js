@@ -7,7 +7,8 @@ const FILES = [
   'drop_unused_tables.sql',
   'fix_notification_tokens_unique.sql',
   'add_bkash_payments.sql',
-  'add_wallets.sql'
+  'add_wallets.sql',
+  'add_service_lifecycle.sql'
 ];
 
 const runMigration = async () => {

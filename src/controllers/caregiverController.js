@@ -7,6 +7,8 @@ const {
 } = require('../models/CaregiverProfile');
 const { findByProviderId: findBookingsByProviderId } = require('../models/Booking');
 const Wallet = require('../models/Wallet');
+const Review = require('../models/Review');
+const { journeyFlags } = require('../services/bookingJourney');
 
 exports.createProfile = async (req, res) => {
   try {
@@ -143,7 +145,15 @@ exports.getMyBookings = async (req, res) => {
     if (!profile) return res.notFound('Caregiver profile not found');
 
     const bookings = await findBookingsByProviderId(profile.id, 'CAREGIVER', { status });
-    res.success(bookings);
+    const data = bookings.map((booking) => ({
+      ...booking,
+      ...journeyFlags(booking, {
+        userId: req.user.id,
+        asProvider: true,
+        review: null
+      })
+    }));
+    res.success(data);
   } catch (error) {
     console.error('Get caregiver bookings error:', error);
     res.serverError('Failed to get caregiver bookings');
@@ -169,5 +179,31 @@ exports.getMyWallet = async (req, res) => {
   } catch (error) {
     console.error('Get caregiver wallet error:', error);
     res.serverError('Failed to fetch wallet');
+  }
+};
+
+exports.getMyReviews = async (req, res) => {
+  try {
+    const profile = await getCaregiverProfileByUserId(req.user.id);
+    if (!profile) return res.notFound('Caregiver profile not found');
+
+    const page = parseInt(req.query.page || 1, 10);
+    const limit = parseInt(req.query.limit || 20, 10);
+    const offset = (page - 1) * limit;
+    const reviews = await Review.listByCaregiverProfileId(profile.id, { limit, offset });
+    const stats = await Review.averageRatingForCaregiver(profile.id);
+
+    res.success(
+      {
+        rating: stats.avg_rating,
+        total: stats.total,
+        reviews
+      },
+      null,
+      { page, limit, total: stats.total }
+    );
+  } catch (error) {
+    console.error('Get caregiver reviews error:', error);
+    res.serverError('Failed to fetch reviews');
   }
 };

@@ -11,8 +11,11 @@ router.put('/profile', authenticate, authorize('CAREGIVER'), upload.single('prof
 router.get('/search', caregiverController.searchCaregivers);
 router.get('/bookings/my', authenticate, authorize('CAREGIVER'), caregiverController.getMyBookings);
 router.get('/wallet', authenticate, authorize('CAREGIVER'), caregiverController.getMyWallet);
+router.get('/reviews/my', authenticate, authorize('CAREGIVER'), caregiverController.getMyReviews);
 router.post('/bookings/:id/accept', authenticate, authorize('CAREGIVER'), bookingController.acceptBooking);
 router.post('/bookings/:id/reject', authenticate, authorize('CAREGIVER'), bookingController.rejectBooking);
+router.post('/bookings/:id/start', authenticate, authorize('CAREGIVER'), bookingController.startBooking);
+router.post('/bookings/:id/complete', authenticate, authorize('CAREGIVER'), bookingController.completeBooking);
 router.get('/:id', caregiverController.viewCaregiverProfile);
 
 module.exports = router;

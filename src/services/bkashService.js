@@ -26,20 +26,29 @@ const grantTokenFromBkash = async () => {
     }
   );
 
-  const data = response.data || {};
+  const data = response.data;
+  const body =
+    data && typeof data === 'object' && !Array.isArray(data) ? data : {};
 
-  if (!data.id_token) {
+  if (!body.id_token) {
+    const preview =
+      typeof data === 'string' ? data.slice(0, 400) : data;
     console.error('bKash grant token failed:', {
       status: response.status,
-      data
+      tokenURL: bkashConfig.tokenURL,
+      usernameSet: Boolean(bkashConfig.username),
+      appKeySet: Boolean(bkashConfig.app_key),
+      data: preview
     });
     const err = new Error(
-      data.statusMessage ||
-        data.errorMessage ||
-        data.message ||
-        'No id_token received from bKash'
+      body.statusMessage ||
+        body.errorMessage ||
+        body.message ||
+        (typeof data === 'string'
+          ? `bKash grant token failed (HTTP ${response.status})`
+          : 'No id_token received from bKash')
     );
-    err.details = data;
+    err.details = typeof data === 'string' ? { raw: preview } : body;
     err.status = response.status;
     throw err;
   }

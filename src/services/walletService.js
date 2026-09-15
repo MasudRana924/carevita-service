@@ -96,7 +96,25 @@ const distributePaymentToWallets = async ({
   }
 };
 
+const getCaregiverEarningForBooking = async (bookingId) => {
+  const result = await pool.query(
+    `
+    SELECT amount, meta
+    FROM wallet_transactions
+    WHERE booking_id = $1
+      AND category = 'CAREGIVER_EARNING'
+      AND direction = 'CREDIT'
+    ORDER BY created_at DESC
+    LIMIT 1
+    `,
+    [bookingId]
+  );
+  if (!result.rows[0]) return null;
+  return Number(result.rows[0].amount) || 0;
+};
+
 module.exports = {
   PLATFORM_FEE_RATE,
-  distributePaymentToWallets
+  distributePaymentToWallets,
+  getCaregiverEarningForBooking
 };
