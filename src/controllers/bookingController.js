@@ -527,6 +527,31 @@ exports.submitReview = async (req, res) => {
     const stats = await Review.averageRatingForCaregiver(booking.provider_id);
     await updateRating(booking.provider_id, stats.avg_rating);
 
+    const caregiver = await getCaregiverProfileById(booking.provider_id);
+    if (caregiver?.user_id) {
+      try {
+        const stars = '★'.repeat(rating) + '☆'.repeat(5 - rating);
+        await notifyUser({
+          userId: caregiver.user_id,
+          title: 'New rating received',
+          body: `You received ${rating} star${rating === 1 ? '' : 's'} for booking ${booking.booking_number}. ${stars}`,
+          type: 'REVIEW_RECEIVED',
+          bookingId: booking.id,
+          referenceId: booking.id,
+          referenceType: 'booking',
+          extraData: {
+            booking_number: booking.booking_number,
+            rating: String(rating),
+            status: 'SERVICE_COMPLETED',
+            action: 'OPEN_BOOKING',
+            screen: 'booking_details'
+          }
+        });
+      } catch (notifyErr) {
+        console.error('Notify caregiver on review failed:', notifyErr.message);
+      }
+    }
+
     const payload = await withJourney(await findById(booking.id), req.user.id);
     res.created(
       {
