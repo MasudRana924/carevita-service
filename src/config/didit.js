@@ -11,11 +11,22 @@ const envOr = (name, fallback) => {
   return value || fallback;
 };
 
-module.exports = {
+const getDiditConfig = () => ({
   apiKey: envOr('DIDIT_API_KEY', ''),
   workflowId: envOr('DIDIT_WORKFLOW_ID', ''),
   webhookSecret: envOr('DIDIT_WEBHOOK_SECRET', ''),
   apiUrl: envOr('DIDIT_API_URL', 'https://verification.didit.me').replace(/\/$/, ''),
   callbackUrl: envOr('DIDIT_CALLBACK_URL', ''),
   timestampWindowSeconds: parseInt(envOr('DIDIT_WEBHOOK_WINDOW_SECONDS', '300'), 10)
-};
+});
+
+module.exports = new Proxy(
+  {},
+  {
+    get(target, prop) {
+      if (prop === 'getDiditConfig') return getDiditConfig;
+      const config = getDiditConfig();
+      return config[prop];
+    }
+  }
+);

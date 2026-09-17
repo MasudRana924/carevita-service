@@ -69,11 +69,22 @@ const createSession = async ({
 
   if (response.status !== 201 && response.status !== 200) {
     const data = response.data;
+    const fieldError = data && typeof data === 'object' && !Array.isArray(data)
+      ? Object.entries(data)
+          .map(([field, value]) => {
+            const text = Array.isArray(value) ? value.join(', ') : (typeof value === 'string' ? value : '');
+            return text ? `${field}: ${text}` : '';
+          })
+          .filter(Boolean)
+          .join('; ')
+      : '';
     const message =
+      fieldError ||
       (data && (data.detail || data.message)) ||
-      (typeof data === 'object' ? JSON.stringify(data).slice(0, 400) : 'Didit session create failed');
+      'Didit session create failed';
     console.error('Didit create session failed:', {
       status: response.status,
+      workflowId: diditConfig.workflowId,
       data
     });
     throw diditError(message, response.status >= 400 && response.status < 500 ? response.status : 502, data);
