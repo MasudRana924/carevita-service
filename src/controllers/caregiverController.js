@@ -10,6 +10,7 @@ const Wallet = require('../models/Wallet');
 const Review = require('../models/Review');
 const { journeyFlags, presentBooking } = require('../services/bookingJourney');
 const { parsePagination } = require('../utils/pagination');
+const { syncProfileFromUser } = require('../services/ekycService');
 
 exports.createProfile = async (req, res) => {
   try {
@@ -44,7 +45,9 @@ exports.createProfile = async (req, res) => {
       thana: String(thana).trim()
     });
 
-    res.created(profile, 'Caregiver profile created successfully');
+    const synced = await syncProfileFromUser(req.user.id);
+
+    res.created(synced || profile, 'Caregiver profile created successfully');
   } catch (error) {
     console.error('Create caregiver profile error:', error);
     res.serverError('Failed to create caregiver profile');

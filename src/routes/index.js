@@ -11,6 +11,7 @@ const hospitalRoutes = require('./hospitalRoutes');
 const inboxRoutes = require('./inboxRoutes');
 const notificationTokenRoutes = require('./notificationTokenRoutes');
 const paymentRoutes = require('./paymentRoutes');
+const ekycRoutes = require('./ekycRoutes');
 
 router.use('/auth', authRoutes);
 router.use('/user', userRoutes);
@@ -22,6 +23,7 @@ router.use('/hospitals', hospitalRoutes);
 router.use('/inbox', inboxRoutes);
 router.use('/notifications', notificationTokenRoutes);
 router.use('/payments', paymentRoutes);
+router.use('/ekyc', ekycRoutes);
 
 router.get('/health', (req, res) => {
   res.success({ status: 'ok' }, 'CareMate API is running');

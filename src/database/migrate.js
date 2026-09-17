@@ -25,6 +25,7 @@ const migrate = async ({ closePool = true } = {}) => {
         ekyc_status BOOLEAN DEFAULT false,
         ekyc_verified_at TIMESTAMP,
         ekyc_reference_id TEXT,
+        ekyc_session_status VARCHAR(50),
         language_preference VARCHAR(10) DEFAULT 'bn',
         emergency_contact VARCHAR(20),
         address TEXT,
@@ -117,6 +118,7 @@ const migrate = async ({ closePool = true } = {}) => {
         ekyc_status BOOLEAN DEFAULT false,
         ekyc_verified_at TIMESTAMP,
         ekyc_reference_id TEXT,
+        ekyc_session_status VARCHAR(50),
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
@@ -467,6 +469,34 @@ const migrate = async ({ closePool = true } = {}) => {
     `);
     await client.query('CREATE INDEX IF NOT EXISTS idx_audit_entity ON audit_logs(entity_type, entity_id)');
     await client.query('CREATE INDEX IF NOT EXISTS idx_audit_actor ON audit_logs(actor_id)');
+
+    await client.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS ekyc_session_status VARCHAR(50)');
+    await client.query('ALTER TABLE caregiver_profiles ADD COLUMN IF NOT EXISTS ekyc_session_status VARCHAR(50)');
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS ekyc_sessions (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        session_id TEXT NOT NULL UNIQUE,
+        session_token TEXT,
+        verification_url TEXT,
+        status VARCHAR(50) DEFAULT 'Not Started',
+        vendor_data TEXT,
+        last_event_id TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    await client.query('CREATE INDEX IF NOT EXISTS idx_ekyc_sessions_user ON ekyc_sessions(user_id)');
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS ekyc_webhook_events (
+        event_id TEXT PRIMARY KEY,
+        session_id TEXT,
+        webhook_type TEXT,
+        processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
 
     await client.query('COMMIT');
     console.log('Core migration completed successfully');

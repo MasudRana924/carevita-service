@@ -6,6 +6,7 @@ const caregiverController = require('../controllers/caregiverController');
 const bookingController = require('../controllers/bookingController');
 const availabilityController = require('../controllers/availabilityController');
 const withdrawalController = require('../controllers/withdrawalController');
+const ekycController = require('../controllers/ekycController');
 
 router.post('/profile', authenticate, authorize('CAREGIVER'), upload.single('profile_photo'), caregiverController.createProfile);
 router.get('/profile', authenticate, authorize('CAREGIVER'), caregiverController.getMyProfile);
@@ -18,6 +19,8 @@ router.get('/wallet', authenticate, authorize('CAREGIVER'), caregiverController.
 router.get('/reviews/my', authenticate, authorize('CAREGIVER'), caregiverController.getMyReviews);
 router.post('/withdrawals', authenticate, authorize('CAREGIVER'), withdrawalController.requestWithdrawal);
 router.get('/withdrawals', authenticate, authorize('CAREGIVER'), withdrawalController.myWithdrawals);
+router.post('/ekyc/initiate', authenticate, authorize('CAREGIVER'), ekycController.initiate);
+router.get('/ekyc/status', authenticate, authorize('CAREGIVER'), ekycController.getStatus);
 router.post('/bookings/:id/accept', authenticate, authorize('CAREGIVER'), bookingController.acceptBooking);
 router.post('/bookings/:id/reject', authenticate, authorize('CAREGIVER'), bookingController.rejectBooking);
 router.post('/bookings/:id/start', authenticate, authorize('CAREGIVER'), bookingController.startBooking);

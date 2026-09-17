@@ -116,18 +116,31 @@ const updateStatus = async (id, status) => {
 };
 
 const updateEkyc = async (id, ekycData) => {
-  const { ekyc_status, ekyc_verified_at, ekyc_reference_id } = ekycData;
+  const { ekyc_status, ekyc_verified_at, ekyc_reference_id, ekyc_session_status } = ekycData;
   const query = `
     UPDATE users
     SET ekyc_status = COALESCE($1, ekyc_status),
-        ekyc_verified_at = COALESCE($2, ekyc_verified_at),
+        ekyc_verified_at = CASE
+          WHEN $1::boolean = true THEN COALESCE($2, ekyc_verified_at, CURRENT_TIMESTAMP)
+          WHEN $1::boolean = false THEN $2
+          ELSE COALESCE($2, ekyc_verified_at)
+        END,
         ekyc_reference_id = COALESCE($3, ekyc_reference_id),
+        ekyc_session_status = COALESCE($4, ekyc_session_status),
         updated_at = CURRENT_TIMESTAMP
-    WHERE id = $4
+    WHERE id = $5
     RETURNING *
   `;
-  const result = await pool.query(query, [ekyc_status, ekyc_verified_at, ekyc_reference_id, id]);
+  const result = await pool.query(query, [ekyc_status, ekyc_verified_at, ekyc_reference_id, ekyc_session_status, id]);
   return result.rows[0];
+};
+
+const findByEkycReference = async (referenceId) => {
+  const result = await pool.query(
+    'SELECT * FROM users WHERE ekyc_reference_id = $1 LIMIT 1',
+    [referenceId]
+  );
+  return result.rows[0] || null;
 };
 
 const deleteUser = async (id) => {
@@ -222,6 +235,7 @@ module.exports = {
   adminUpdateUser,
   updateStatus,
   updateEkyc,
+  findByEkycReference,
   deleteUser,
   findAll,
   countAll,

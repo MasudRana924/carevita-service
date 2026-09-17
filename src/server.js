@@ -39,8 +39,16 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 }));
 
-// Body parsing middleware
-app.use(express.json({ limit: '10mb' }));
+// Body parsing middleware — keep raw bytes for Didit webhook HMAC
+app.use(express.json({
+  limit: '10mb',
+  verify: (req, res, buf) => {
+    const url = req.originalUrl || req.url || '';
+    if (url.includes('/ekyc/webhook')) {
+      req.rawBody = buf;
+    }
+  }
+}));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 app.use(requestId);

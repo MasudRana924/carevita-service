@@ -20,6 +20,10 @@ const apiLimiter = rateLimit({
   max: 100,
   standardHeaders: true,
   legacyHeaders: false,
+  skip: (req) => {
+    const path = (req.originalUrl || req.url || '').split('?')[0];
+    return /\/ekyc\/webhook\/?$/.test(path);
+  },
   handler: (req, res) => {
     sendFail(req, res, {
       message: 'Too many requests, please try again later.',

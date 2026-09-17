@@ -202,11 +202,42 @@ const incrementCompletedBookings = async (id) => {
   return result.rows[0];
 };
 
+const updateCaregiverEkyc = async (id, ekycData) => {
+  const {
+    ekyc_status,
+    ekyc_verified_at,
+    ekyc_reference_id,
+    ekyc_session_status,
+    verification_status
+  } = ekycData;
+
+  const result = await pool.query(
+    `
+    UPDATE caregiver_profiles
+    SET ekyc_status = COALESCE($1, ekyc_status),
+        ekyc_verified_at = CASE
+          WHEN $1::boolean = true THEN COALESCE($2, ekyc_verified_at, CURRENT_TIMESTAMP)
+          WHEN $1::boolean = false THEN $2
+          ELSE COALESCE($2, ekyc_verified_at)
+        END,
+        ekyc_reference_id = COALESCE($3, ekyc_reference_id),
+        ekyc_session_status = COALESCE($4, ekyc_session_status),
+        verification_status = COALESCE($5, verification_status),
+        updated_at = CURRENT_TIMESTAMP
+    WHERE id = $6
+    RETURNING *
+    `,
+    [ekyc_status, ekyc_verified_at, ekyc_reference_id, ekyc_session_status, verification_status, id]
+  );
+  return result.rows[0];
+};
+
 module.exports = {
   createCaregiverProfile,
   getCaregiverProfileByUserId,
   getCaregiverProfileById,
   updateCaregiverProfile,
+  updateCaregiverEkyc,
   updateVerificationStatus,
   searchCaregivers,
   updateRating,
