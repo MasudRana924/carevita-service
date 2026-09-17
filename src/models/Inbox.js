@@ -122,6 +122,22 @@ const getUnreadCount = async (user_id) => {
   return result.rows[0].count;
 };
 
+const findExisting = async (userId, type, referenceId) => {
+  if (!userId || !type) return null;
+  const result = await pool.query(
+    `
+    SELECT * FROM inbox
+    WHERE user_id = $1
+      AND type = $2
+      AND ($3::uuid IS NULL OR reference_id = $3)
+    ORDER BY created_at DESC
+    LIMIT 1
+    `,
+    [userId, type, referenceId || null]
+  );
+  return result.rows[0] || null;
+};
+
 module.exports = {
   createInboxItem,
   findByUserId,
@@ -129,5 +145,6 @@ module.exports = {
   findByIdForUser,
   markAsRead,
   markAllAsRead,
-  getUnreadCount
+  getUnreadCount,
+  findExisting
 };

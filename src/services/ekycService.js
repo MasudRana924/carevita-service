@@ -8,6 +8,7 @@ const diditService = require('./diditService');
 const diditConfig = require('../config/didit');
 const { writeAudit } = require('../utils/audit');
 const { notifyUser } = require('./pushNotificationService');
+const Inbox = require('../models/Inbox');
 
 const presentSession = (user, session) => ({
   ekyc_status: Boolean(user?.ekyc_status),
@@ -102,29 +103,41 @@ const notifyEkycStatus = async (user, status, sessionId) => {
 
   const bn = user.language_preference === 'bn';
   const approved = status === diditService.APPROVED_STATUS;
+  const type = approved ? 'EKYC_APPROVED' : 'EKYC_DECLINED';
+  const existing = await Inbox.findExisting(user.id, type, sessionId);
+
+  const payload = {
+    userId: user.id,
+    title: approved
+      ? (bn ? 'অ্যাকাউন্ট ভেরিফাই হয়েছে' : 'Identity verified')
+      : (bn ? 'ভেরিফিকেশন ব্যর্থ' : 'Verification declined'),
+    body: approved
+      ? (bn
+        ? 'আপনার কেয়ারগিভার অ্যাকাউন্ট অনুমোদিত হয়েছে। এখন হোম থেকে কাজ শুরু করতে পারেন।'
+        : 'Your caregiver account is approved. You can continue to Home.')
+      : (bn
+        ? 'আপনার পরিচয় যাচাই অনুমোদিত হয়নি। আবার চেষ্টা করুন।'
+        : 'Your identity verification was not approved. Please try again.'),
+    type,
+    referenceId: sessionId,
+    referenceType: 'ekyc',
+    extraData: {
+      screen: approved ? 'HOME' : 'EKYC',
+      ekyc_status: approved ? 'true' : 'false',
+      ekyc_session_status: status,
+      session_id: sessionId || ''
+    },
+    skipInbox: Boolean(existing),
+    inboxId: existing?.id || null
+  };
 
   try {
-    await notifyUser({
+    const result = await notifyUser(payload);
+    console.log('eKYC notify result', {
       userId: user.id,
-      title: approved
-        ? (bn ? 'অ্যাকাউন্ট ভেরিফাই হয়েছে' : 'Identity verified')
-        : (bn ? 'ভেরিফিকেশন ব্যর্থ' : 'Verification declined'),
-      body: approved
-        ? (bn
-          ? 'আপনার কেয়ারগিভার অ্যাকাউন্ট অনুমোদিত হয়েছে। এখন হোম থেকে কাজ শুরু করতে পারেন।'
-          : 'Your caregiver account is approved. You can continue to Home.')
-        : (bn
-          ? 'আপনার পরিচয় যাচাই অনুমোদিত হয়নি। আবার চেষ্টা করুন।'
-          : 'Your identity verification was not approved. Please try again.'),
-      type: approved ? 'EKYC_APPROVED' : 'EKYC_DECLINED',
-      referenceId: sessionId,
-      referenceType: 'ekyc',
-      extraData: {
-        screen: approved ? 'HOME' : 'EKYC',
-        ekyc_status: approved ? 'true' : 'false',
-        ekyc_session_status: status,
-        session_id: sessionId || ''
-      }
+      type,
+      skipInbox: Boolean(existing),
+      push: result.push
     });
   } catch (error) {
     console.error('eKYC notify failed:', error.message);
@@ -329,5 +342,6 @@ module.exports = {
   initiateForCaregiver,
   getStatusForCaregiver,
   handleWebhook,
-  syncProfileFromUser
+  syncProfileFromUser,
+  notifyEkycStatus
 };

@@ -20,22 +20,27 @@ const notifyUser = async ({
   referenceId = null,
   referenceType = null,
   data = {},
-  extraData = {}
+  extraData = {},
+  skipInbox = false,
+  inboxId = null
 }) => {
   const payloadData = { ...(data || {}), ...(extraData || {}) };
   if (bookingId != null) {
     payloadData.booking_id = String(bookingId);
   }
 
-  const inbox = await createInboxItem({
-    user_id: userId,
-    title,
-    body,
-    type,
-    reference_id: referenceId || bookingId || null,
-    reference_type: referenceType || (bookingId ? 'booking' : null),
-    data: payloadData
-  });
+  let inbox = null;
+  if (!skipInbox) {
+    inbox = await createInboxItem({
+      user_id: userId,
+      title,
+      body,
+      type,
+      reference_id: referenceId || bookingId || null,
+      reference_type: referenceType || (bookingId ? 'booking' : null),
+      data: payloadData
+    });
+  }
 
   const pushEnabled = await isEnabled(userId, type);
   let push = { attempted: false, successCount: 0, failureCount: 0, muted: !pushEnabled };
@@ -47,16 +52,26 @@ const notifyUser = async ({
   const tokenRows = await getUserTokens(userId);
   const tokens = tokenRows.map((row) => row.token).filter(Boolean);
 
-  if (tokens.length > 0) {
-    try {
-      const messaging = getFirebaseMessaging();
-      const response = await messaging.sendEachForMulticast({
+  if (tokens.length === 0) {
+    console.warn('FCM skipped: no active notification token', { userId, type });
+    return { inbox, push };
+  }
+
+  const messaging = getFirebaseMessaging();
+  if (!messaging) {
+    console.error('FCM skipped: Firebase Admin is not initialized');
+    push = { attempted: false, successCount: 0, failureCount: 0, error: 'firebase_not_initialized' };
+    return { inbox, push };
+  }
+
+  try {
+    const response = await messaging.sendEachForMulticast({
         tokens,
         notification: { title, body },
         data: {
           type: String(type),
           booking_id: bookingId != null ? String(bookingId) : '',
-          inbox_id: String(inbox.id),
+          inbox_id: String(inbox?.id || inboxId || ''),
           ...Object.fromEntries(
             Object.entries(payloadData).map(([k, v]) => [String(k), String(v ?? '')])
           )
@@ -84,7 +99,6 @@ const notifyUser = async ({
       console.error('FCM send failed:', err.message);
       push = { attempted: true, successCount: 0, failureCount: tokens.length, error: err.message };
     }
-  }
 
   return { inbox, push };
 };
