@@ -1,9 +1,10 @@
 const pool = require('../config/database');
+const { parsePagination } = require('../utils/pagination');
 
 exports.listHospitals = async (req, res) => {
   try {
-    const { district, page = 1, limit = 20 } = req.query;
-    const offset = (page - 1) * limit;
+    const { district } = req.query;
+    const { page, limit, offset } = parsePagination(req.query);
 
     let query = 'SELECT * FROM hospitals WHERE is_active = true';
     const values = [];
@@ -15,19 +16,22 @@ exports.listHospitals = async (req, res) => {
       values.push(district);
     }
 
-    query += ' ORDER BY name LIMIT $' + (paramCount + 1) + ' OFFSET $' + (paramCount + 2);
-    values.push(parseInt(limit), parseInt(offset));
+    const countQuery = query.replace('SELECT *', 'SELECT COUNT(*)::int AS count');
+    query += ` ORDER BY name LIMIT $${paramCount + 1} OFFSET $${paramCount + 2}`;
 
-    const result = await pool.query(query, values);
+    const [result, countResult] = await Promise.all([
+      pool.query(query, [...values, limit, offset]),
+      pool.query(countQuery, values)
+    ]);
 
-    res.success(result.rows, null, {
-      page: parseInt(page),
-      limit: parseInt(limit),
-      total: result.rows.length
-    });
+    return res.paginated(result.rows, {
+      page,
+      limit,
+      total: countResult.rows[0].count
+    }, 'Hospitals fetched successfully');
   } catch (error) {
     console.error('List hospitals error:', error);
-    res.serverError('Failed to list hospitals');
+    return res.serverError('Failed to list hospitals');
   }
 };
 
@@ -41,9 +45,9 @@ exports.getHospital = async (req, res) => {
       return res.notFound('Hospital not found');
     }
 
-    res.success(result.rows[0]);
+    return res.success(result.rows[0], 'Hospital fetched successfully');
   } catch (error) {
     console.error('Get hospital error:', error);
-    res.serverError('Failed to get hospital');
+    return res.serverError('Failed to get hospital');
   }
 };

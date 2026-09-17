@@ -122,6 +122,27 @@ const findByUserId = async (user_id, filters = {}) => {
   return result.rows;
 };
 
+const countByUserId = async (user_id, filters = {}) => {
+  let query = 'SELECT COUNT(*)::int AS count FROM bookings b WHERE b.user_id = $1';
+  const values = [user_id];
+  let paramCount = 1;
+
+  if (filters.status) {
+    paramCount++;
+    query += ` AND b.status = $${paramCount}`;
+    values.push(filters.status);
+  }
+
+  if (filters.provider_type) {
+    paramCount++;
+    query += ` AND b.provider_type = $${paramCount}`;
+    values.push(filters.provider_type);
+  }
+
+  const result = await pool.query(query, values);
+  return result.rows[0].count;
+};
+
 const findByProviderId = async (provider_id, provider_type, filters = {}) => {
   let query = `
     SELECT b.*, 
@@ -376,8 +397,10 @@ const getActiveBookings = async () => {
     JOIN users u ON b.user_id = u.id
     LEFT JOIN family_members fm ON b.family_member_id = fm.id
     LEFT JOIN hospitals h ON b.hospital_id = h.id
-    WHERE b.status IN ('confirmed', 'in_progress', 'provider_assigned', 'helper_on_way')
-    ORDER BY b.scheduled_date ASC
+    WHERE b.status IN (
+      'PROVIDER_ASSIGNED', 'PROVIDER_ACCEPTED', 'PAYMENT_PAID', 'SERVICE_IN_PROGRESS'
+    )
+    ORDER BY b.booking_date ASC
   `;
   const result = await pool.query(query);
   return result.rows;
@@ -393,11 +416,93 @@ const getTodayBookings = async () => {
     JOIN users u ON b.user_id = u.id
     LEFT JOIN family_members fm ON b.family_member_id = fm.id
     LEFT JOIN hospitals h ON b.hospital_id = h.id
-    WHERE DATE(b.scheduled_date) = CURRENT_DATE
-    ORDER BY b.scheduled_date ASC
+    WHERE b.booking_date = CURRENT_DATE
+    ORDER BY b.start_time ASC
   `;
   const result = await pool.query(query);
   return result.rows;
+};
+
+const addRejection = async (bookingId, caregiverProfileId, reason = null) => {
+  await pool.query(
+    `
+    INSERT INTO booking_provider_rejections (booking_id, caregiver_profile_id, reason)
+    VALUES ($1, $2, $3)
+    ON CONFLICT (booking_id, caregiver_profile_id) DO UPDATE SET reason = EXCLUDED.reason
+    `,
+    [bookingId, caregiverProfileId, reason]
+  );
+};
+
+const listRejectedIds = async (bookingId) => {
+  const result = await pool.query(
+    'SELECT caregiver_profile_id FROM booking_provider_rejections WHERE booking_id = $1',
+    [bookingId]
+  );
+  return result.rows.map((row) => row.caregiver_profile_id);
+};
+
+const hasOverlap = async ({ providerId, bookingDate, startTime, endTime, excludeBookingId = null }) => {
+  const result = await pool.query(
+    `
+    SELECT id FROM bookings
+    WHERE provider_id = $1
+      AND provider_type = 'CAREGIVER'
+      AND booking_date = $2
+      AND status IN ('PROVIDER_ASSIGNED', 'PROVIDER_ACCEPTED', 'PAYMENT_PAID', 'SERVICE_IN_PROGRESS')
+      AND ($5::uuid IS NULL OR id <> $5)
+      AND start_time < $4::time
+      AND end_time > $3::time
+    LIMIT 1
+    `,
+    [providerId, bookingDate, startTime, endTime, excludeBookingId]
+  );
+  return !!result.rows[0];
+};
+
+const assignProvider = async (id, providerId, status = 'PROVIDER_ASSIGNED') => {
+  const result = await pool.query(
+    `
+    UPDATE bookings
+    SET provider_id = $1,
+        status = $2,
+        updated_at = CURRENT_TIMESTAMP
+    WHERE id = $3
+    RETURNING *
+    `,
+    [providerId, status, id]
+  );
+  return result.rows[0];
+};
+
+const countAll = async (filters = {}) => {
+  let query = 'SELECT COUNT(*)::int AS count FROM bookings b WHERE 1=1';
+  const values = [];
+  let paramCount = 0;
+
+  if (filters.status) {
+    paramCount += 1;
+    query += ` AND b.status = $${paramCount}`;
+    values.push(filters.status);
+  }
+  if (filters.provider_type) {
+    paramCount += 1;
+    query += ` AND b.provider_type = $${paramCount}`;
+    values.push(filters.provider_type);
+  }
+  if (filters.date_from) {
+    paramCount += 1;
+    query += ` AND b.booking_date >= $${paramCount}`;
+    values.push(filters.date_from);
+  }
+  if (filters.date_to) {
+    paramCount += 1;
+    query += ` AND b.booking_date <= $${paramCount}`;
+    values.push(filters.date_to);
+  }
+
+  const result = await pool.query(query, values);
+  return result.rows[0].count;
 };
 
 module.exports = {
@@ -405,8 +510,10 @@ module.exports = {
   findById,
   findByBookingNumber,
   findByUserId,
+  countByUserId,
   findByProviderId,
   findAll,
+  countAll,
   updateBooking,
   updateStatus,
   clearProvider,
@@ -418,5 +525,9 @@ module.exports = {
   addStatusHistory,
   getStatusHistory,
   getActiveBookings,
-  getTodayBookings
+  getTodayBookings,
+  addRejection,
+  listRejectedIds,
+  hasOverlap,
+  assignProvider
 };

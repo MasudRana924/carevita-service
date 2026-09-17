@@ -1,19 +1,11 @@
-const { authenticate } = require('./auth');
-
 const authorize = (...allowedRoles) => {
   return (req, res, next) => {
     if (!req.user) {
-      return res.status(401).json({
-        success: false,
-        message: 'Authentication required'
-      });
+      return res.unauthorized('Authentication required');
     }
 
     if (!allowedRoles.includes(req.user.role)) {
-      return res.status(403).json({
-        success: false,
-        message: 'Insufficient permissions'
-      });
+      return res.forbidden('Insufficient permissions');
     }
 
     next();
@@ -23,10 +15,7 @@ const authorize = (...allowedRoles) => {
 const authorizeOwnerOrAdmin = (getResourceUserId) => {
   return async (req, res, next) => {
     if (!req.user) {
-      return res.status(401).json({
-        success: false,
-        message: 'Authentication required'
-      });
+      return res.unauthorized('Authentication required');
     }
 
     if (req.user.role === 'ADMIN') {
@@ -35,10 +24,7 @@ const authorizeOwnerOrAdmin = (getResourceUserId) => {
 
     const resourceUserId = await getResourceUserId(req);
     if (req.user.id !== resourceUserId) {
-      return res.status(403).json({
-        success: false,
-        message: 'Access denied'
-      });
+      return res.forbidden('Access denied');
     }
 
     next();

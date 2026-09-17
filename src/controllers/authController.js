@@ -1,7 +1,9 @@
-const { createUser, findByPhone, findByEmail, findById, updateUser, updatePassword, verifyPassword, setVerified } = require('../models/User');
-const { generateToken, generateRefreshToken } = require('../config/jwt');
+const { createUser, findByEmail, findById, updateUser, updatePassword, verifyPassword, setVerified } = require('../models/User');
+const { generateToken, generateRefreshToken, verifyRefreshToken } = require('../config/jwt');
 const pool = require('../config/database');
 const transporter = require('../config/nodemailer');
+const { authUser, publicUser } = require('../utils/serializers');
+const { ERROR_CODES } = require('../utils/apiResponse');
 
 const sendEmailOTP = async (email, otp) => {
   try {
@@ -80,7 +82,7 @@ exports.verifyOTP = async (req, res) => {
     );
 
     if (result.rows.length === 0) {
-      return res.error('Invalid or expired OTP');
+      return res.error('Invalid or expired OTP', [], 400, ERROR_CODES.OTP_INVALID);
     }
 
     await pool.query(
@@ -99,17 +101,10 @@ exports.verifyOTP = async (req, res) => {
     const token = generateToken({ userId: verifiedUser.id, role: verifiedUser.role });
     const refreshToken = generateRefreshToken({ userId: verifiedUser.id });
 
-    res.success({
+    return res.success({
       token,
       refreshToken,
-      user: {
-        id: verifiedUser.id,
-        email: verifiedUser.email,
-        name: verifiedUser.name,
-        role: verifiedUser.role,
-        is_verified: verifiedUser.is_verified,
-        ekyc_status: verifiedUser.ekyc_status
-      }
+      user: authUser(verifiedUser)
     }, 'OTP verified successfully');
   } catch (error) {
     console.error('Verify OTP error:', error);
@@ -127,7 +122,7 @@ exports.register = async (req, res) => {
 
     const existingUser = await findByEmail(email);
     if (existingUser) {
-      return res.error('User with this email already exists', [], 409);
+      return res.conflict('User with this email already exists');
     }
 
     const user = await createUser({
@@ -148,30 +143,18 @@ exports.register = async (req, res) => {
 
     const emailSent = await sendEmailOTP(email, otp);
 
-    const userPayload = {
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      role: user.role,
-      is_verified: user.is_verified,
-      ekyc_status: user.ekyc_status
-    };
+    const userPayload = authUser(user);
+    const message = role === 'ADMIN'
+      ? 'Admin registration successful. Please verify your email with the OTP sent to your email address. OTP expires in 1 minute.'
+      : role === 'CAREGIVER'
+        ? 'Caregiver registration successful. Please verify your email with the OTP sent to your email address. OTP expires in 1 minute.'
+        : 'Registration successful. Please verify your email with the OTP sent to your email address. OTP expires in 1 minute.';
 
-    if (role === 'ADMIN') {
-      res.created({
-        user: userPayload
-      }, 'Admin registration successful. Please verify your email with the OTP sent to your email address. OTP expires in 1 minute.');
-    } else if (role === 'CAREGIVER') {
-      res.created({
-        user: userPayload,
-        expiresAt
-      }, 'Caregiver registration successful. Please verify your email with the OTP sent to your email address. OTP expires in 1 minute.');
-    } else {
-      res.created({
-        user: userPayload,
-        expiresAt
-      }, 'Registration successful. Please verify your email with the OTP sent to your email address. OTP expires in 1 minute.');
-    }
+    return res.created({
+      user: userPayload,
+      expiresAt: role === 'ADMIN' ? undefined : expiresAt,
+      email_sent: emailSent
+    }, message);
   } catch (error) {
     console.error('Registration error:', error);
     res.serverError('Registration failed');
@@ -211,17 +194,10 @@ exports.login = async (req, res) => {
     const token = generateToken({ userId: user.id, role: user.role });
     const refreshToken = generateRefreshToken({ userId: user.id });
 
-    res.success({
+    return res.success({
       token,
       refreshToken,
-      user: {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        role: user.role,
-        is_verified: user.is_verified,
-        ekyc_status: user.ekyc_status
-      }
+      user: authUser(user)
     }, 'Login successful');
   } catch (error) {
     console.error('Login error:', error);
@@ -234,37 +210,26 @@ exports.refreshToken = async (req, res) => {
     const { refreshToken } = req.body;
 
     if (!refreshToken) {
-      return res.status(400).json({
-        success: false,
-        message: 'Refresh token is required'
-      });
+      return res.badRequest('Refresh token is required');
     }
 
-    const { verifyRefreshToken } = require('../config/jwt');
     const decoded = verifyRefreshToken(refreshToken);
 
     const user = await findById(decoded.userId);
     if (!user) {
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid refresh token'
-      });
+      return res.unauthorized('Invalid refresh token', ERROR_CODES.TOKEN_INVALID);
     }
 
     const token = generateToken({ userId: user.id, role: user.role });
     const newRefreshToken = generateRefreshToken({ userId: user.id });
 
-    res.status(200).json({
-      success: true,
+    return res.success({
       token,
       refreshToken: newRefreshToken
-    });
+    }, 'Token refreshed successfully');
   } catch (error) {
     console.error('Refresh token error:', error);
-    res.status(401).json({
-      success: false,
-      message: 'Invalid refresh token'
-    });
+    return res.unauthorized('Invalid refresh token', ERROR_CODES.TOKEN_INVALID);
   }
 };
 
@@ -273,36 +238,13 @@ exports.getProfile = async (req, res) => {
     const user = await findById(req.user.id);
 
     if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found'
-      });
+      return res.notFound('User not found');
     }
 
-    res.status(200).json({
-      success: true,
-      user: {
-        id: user.id,
-        phone: user.phone,
-        email: user.email,
-        name: user.name,
-        profile_photo: user.profile_photo,
-        role: user.role,
-        status: user.status,
-        is_verified: user.is_verified,
-        ekyc_status: user.ekyc_status,
-        language_preference: user.language_preference,
-        emergency_contact: user.emergency_contact,
-        address: user.address,
-        created_at: user.created_at
-      }
-    });
+    return res.success(publicUser(user), 'Profile fetched successfully');
   } catch (error) {
     console.error('Get profile error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch profile'
-    });
+    return res.serverError('Failed to fetch profile');
   }
 };
 
@@ -313,10 +255,7 @@ exports.updateProfile = async (req, res) => {
     if (email && email !== req.user.email) {
       const existingEmail = await findByEmail(email);
       if (existingEmail) {
-        return res.status(409).json({
-          success: false,
-          message: 'Email already in use'
-        });
+        return res.conflict('Email already in use');
       }
     }
 
@@ -328,26 +267,10 @@ exports.updateProfile = async (req, res) => {
       address
     });
 
-    res.status(200).json({
-      success: true,
-      message: 'Profile updated successfully',
-      user: {
-        id: user.id,
-        phone: user.phone,
-        email: user.email,
-        name: user.name,
-        profile_photo: user.profile_photo,
-        language_preference: user.language_preference,
-        emergency_contact: user.emergency_contact,
-        address: user.address
-      }
-    });
+    return res.success(publicUser(user), 'Profile updated successfully');
   } catch (error) {
     console.error('Update profile error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to update profile'
-    });
+    return res.serverError('Failed to update profile');
   }
 };
 
@@ -356,69 +279,46 @@ exports.updatePassword = async (req, res) => {
     const { currentPassword, newPassword } = req.body;
 
     if (!currentPassword || !newPassword) {
-      return res.status(400).json({
-        success: false,
-        message: 'Current and new password are required'
-      });
+      return res.badRequest('Current and new password are required');
     }
 
     const user = await findById(req.user.id);
     if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found'
-      });
+      return res.notFound('User not found');
     }
 
     if (user.password) {
       const isPasswordValid = await verifyPassword(currentPassword, user.password);
       if (!isPasswordValid) {
-        return res.status(401).json({
-          success: false,
-          message: 'Current password is incorrect'
-        });
+        return res.unauthorized('Current password is incorrect');
       }
     }
 
     await updatePassword(req.user.id, newPassword);
 
-    res.status(200).json({
-      success: true,
-      message: 'Password updated successfully'
-    });
+    return res.success(null, 'Password updated successfully');
   } catch (error) {
     console.error('Update password error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to update password'
-    });
+    return res.serverError('Failed to update password');
   }
 };
 
 exports.uploadProfilePhoto = async (req, res) => {
   try {
     if (!req.file) {
-      return res.status(400).json({
-        success: false,
-        message: 'No file uploaded'
-      });
+      return res.badRequest('No file uploaded');
     }
 
     const user = await updateUser(req.user.id, {
       profile_photo: req.file.path
     });
 
-    res.status(200).json({
-      success: true,
-      message: 'Profile photo uploaded successfully',
+    return res.success({
       profile_photo: user.profile_photo
-    });
+    }, 'Profile photo uploaded successfully');
   } catch (error) {
     console.error('Upload photo error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to upload profile photo'
-    });
+    return res.serverError('Failed to upload profile photo');
   }
 };
 
@@ -445,7 +345,7 @@ exports.resendOTP = async (req, res) => {
 
       if (timeSinceLastSent < cooldownTime) {
         const remainingCooldown = Math.ceil((cooldownTime - timeSinceLastSent) / 1000);
-        return res.error(`Please wait ${remainingCooldown} seconds before requesting another OTP`, [], 429);
+        return res.tooManyRequests(`Please wait ${remainingCooldown} seconds before requesting another OTP`);
       }
     }
 

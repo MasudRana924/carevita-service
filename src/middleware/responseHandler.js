@@ -1,65 +1,64 @@
+const { sendSuccess, sendFail, ERROR_CODES } = require('../utils/apiResponse');
+
 const responseHandler = (req, res, next) => {
-  res.success = (data, message = 'Operation successful', meta = {}) => {
-    res.status(200).json({
-      success: true,
+  res.success = (data = null, message = 'Success', meta = {}) =>
+    sendSuccess(req, res, { data, message, statusCode: 200, meta });
+
+  res.created = (data = null, message = 'Resource created successfully', meta = {}) =>
+    sendSuccess(req, res, { data, message, statusCode: 201, meta });
+
+  res.paginated = (data = [], pagination = {}, message = 'Success', extraMeta = {}) =>
+    sendSuccess(req, res, {
+      data: Array.isArray(data) ? data : [],
       message,
-      data,
-      meta
+      statusCode: 200,
+      meta: { ...extraMeta, ...pagination }
     });
-  };
 
-  res.created = (data, message = 'Resource created successfully', meta = {}) => {
-    res.status(201).json({
-      success: true,
+  res.error = (message = 'Operation failed', errors = [], statusCode = 400, code = ERROR_CODES.BAD_REQUEST) =>
+    sendFail(req, res, { message, errors, statusCode, code });
+
+  res.badRequest = (message = 'Bad request', errors = []) =>
+    sendFail(req, res, {
       message,
-      data,
-      meta
+      errors,
+      statusCode: 400,
+      code: ERROR_CODES.BAD_REQUEST
     });
-  };
 
-  res.error = (message = 'Operation failed', errors = [], statusCode = 400) => {
-    res.status(statusCode).json({
-      success: false,
+  res.unauthorized = (message = 'Authentication required', code = ERROR_CODES.UNAUTHORIZED) =>
+    sendFail(req, res, { message, statusCode: 401, code });
+
+  res.forbidden = (message = 'Access denied', code = ERROR_CODES.FORBIDDEN) =>
+    sendFail(req, res, { message, statusCode: 403, code });
+
+  res.notFound = (message = 'Resource not found') =>
+    sendFail(req, res, {
       message,
-      errors
+      statusCode: 404,
+      code: ERROR_CODES.NOT_FOUND
     });
-  };
 
-  res.badRequest = (message = 'Bad request', errors = []) => {
-    res.status(400).json({
-      success: false,
+  res.conflict = (message = 'Resource already exists') =>
+    sendFail(req, res, {
       message,
-      errors
+      statusCode: 409,
+      code: ERROR_CODES.CONFLICT
     });
-  };
 
-  res.notFound = (message = 'Resource not found') => {
-    res.status(404).json({
-      success: false,
-      message
+  res.tooManyRequests = (message = 'Too many requests') =>
+    sendFail(req, res, {
+      message,
+      statusCode: 429,
+      code: ERROR_CODES.TOO_MANY_REQUESTS
     });
-  };
 
-  res.unauthorized = (message = 'Authentication required') => {
-    res.status(401).json({
-      success: false,
-      message
+  res.serverError = (message = 'Internal server error') =>
+    sendFail(req, res, {
+      message,
+      statusCode: 500,
+      code: ERROR_CODES.INTERNAL_ERROR
     });
-  };
-
-  res.forbidden = (message = 'Access denied') => {
-    res.status(403).json({
-      success: false,
-      message
-    });
-  };
-
-  res.serverError = (message = 'Internal server error') => {
-    res.status(500).json({
-      success: false,
-      message
-    });
-  };
 
   next();
 };

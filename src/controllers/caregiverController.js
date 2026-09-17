@@ -8,7 +8,8 @@ const {
 const { findByProviderId: findBookingsByProviderId } = require('../models/Booking');
 const Wallet = require('../models/Wallet');
 const Review = require('../models/Review');
-const { journeyFlags } = require('../services/bookingJourney');
+const { journeyFlags, presentBooking } = require('../services/bookingJourney');
+const { parsePagination } = require('../utils/pagination');
 
 exports.createProfile = async (req, res) => {
   try {
@@ -23,7 +24,7 @@ exports.createProfile = async (req, res) => {
 
     const existingProfile = await getCaregiverProfileByUserId(req.user.id);
     if (existingProfile) {
-      return res.error('Profile already exists', [], 409);
+      return res.conflict('Profile already exists');
     }
 
     const profilePhoto = req.file ? req.file.path : null;
@@ -99,10 +100,10 @@ exports.searchCaregivers = async (req, res) => {
   try {
     const {
       service_area, name, gender, verification_status, min_rating,
-      district, thana, page = 1, limit = 20
+      district, thana
     } = req.query;
-
-    const caregivers = await searchCaregivers({
+    const { page, limit } = parsePagination(req.query);
+    const { items, total } = await searchCaregivers({
       service_area,
       name,
       gender,
@@ -110,15 +111,11 @@ exports.searchCaregivers = async (req, res) => {
       min_rating,
       district,
       thana,
-      page: parseInt(page),
-      limit: parseInt(limit)
+      page,
+      limit
     });
 
-    res.success(caregivers, null, {
-      page: parseInt(page),
-      limit: parseInt(limit),
-      total: caregivers.length
-    });
+    return res.paginated(items, { page, limit, total }, 'Caregivers fetched successfully');
   } catch (error) {
     console.error('Search caregivers error:', error);
     res.serverError('Failed to search caregivers');
@@ -146,7 +143,7 @@ exports.getMyBookings = async (req, res) => {
 
     const bookings = await findBookingsByProviderId(profile.id, 'CAREGIVER', { status });
     const data = bookings.map((booking) => ({
-      ...booking,
+      ...presentBooking(booking, { asProvider: true }),
       ...journeyFlags(booking, {
         userId: req.user.id,
         asProvider: true,
@@ -187,19 +184,17 @@ exports.getMyReviews = async (req, res) => {
     const profile = await getCaregiverProfileByUserId(req.user.id);
     if (!profile) return res.notFound('Caregiver profile not found');
 
-    const page = parseInt(req.query.page || 1, 10);
-    const limit = parseInt(req.query.limit || 20, 10);
-    const offset = (page - 1) * limit;
+    const { page, limit, offset } = parsePagination(req.query);
     const reviews = await Review.listByCaregiverProfileId(profile.id, { limit, offset });
     const stats = await Review.averageRatingForCaregiver(profile.id);
 
-    res.success(
+    return res.success(
       {
         rating: stats.avg_rating,
         total: stats.total,
         reviews
       },
-      null,
+      'Reviews fetched successfully',
       { page, limit, total: stats.total }
     );
   } catch (error) {

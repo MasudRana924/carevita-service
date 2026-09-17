@@ -8,15 +8,16 @@ const createPayment = async ({
   merchant_invoice,
   bkash_payment_id = null,
   status = 'CREATED',
-  create_response = {}
+  create_response = {},
+  idempotency_key = null
 }) => {
   const result = await pool.query(
     `
     INSERT INTO payments (
       user_id, booking_id, amount, currency, merchant_invoice,
-      bkash_payment_id, status, create_response, payment_method
+      bkash_payment_id, status, create_response, payment_method, idempotency_key
     )
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'BKASH')
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'BKASH', $9)
     RETURNING *
     `,
     [
@@ -27,10 +28,20 @@ const createPayment = async ({
       merchant_invoice,
       bkash_payment_id,
       status,
-      JSON.stringify(create_response || {})
+      JSON.stringify(create_response || {}),
+      idempotency_key
     ]
   );
   return result.rows[0];
+};
+
+const findByIdempotencyKey = async (key) => {
+  if (!key) return null;
+  const result = await pool.query(
+    'SELECT * FROM payments WHERE idempotency_key = $1 LIMIT 1',
+    [key]
+  );
+  return result.rows[0] || null;
 };
 
 const findByBkashPaymentId = async (bkashPaymentId) => {
@@ -80,10 +91,46 @@ const markExecuted = async (id, {
   return result.rows[0];
 };
 
+const markRefunded = async (id, { refunded_amount, refund_response = {} }) => {
+  const result = await pool.query(
+    `
+    UPDATE payments
+    SET refunded_amount = COALESCE(refunded_amount, 0) + $1,
+        refund_response = $2::jsonb,
+        refunded_at = CURRENT_TIMESTAMP,
+        status = CASE
+          WHEN COALESCE(refunded_amount, 0) + $1 >= amount THEN 'REFUNDED'
+          ELSE 'PARTIAL_REFUND'
+        END,
+        updated_at = CURRENT_TIMESTAMP
+    WHERE id = $3
+    RETURNING *
+    `,
+    [refunded_amount, JSON.stringify(refund_response || {}), id]
+  );
+  return result.rows[0];
+};
+
+const saveQueryResponse = async (id, query_response = {}) => {
+  const result = await pool.query(
+    `
+    UPDATE payments
+    SET query_response = $1::jsonb, updated_at = CURRENT_TIMESTAMP
+    WHERE id = $2
+    RETURNING *
+    `,
+    [JSON.stringify(query_response || {}), id]
+  );
+  return result.rows[0];
+};
+
 module.exports = {
   createPayment,
   findByBkashPaymentId,
+  findByIdempotencyKey,
   findById,
   findByBookingId,
-  markExecuted
+  markExecuted,
+  markRefunded,
+  saveQueryResponse
 };

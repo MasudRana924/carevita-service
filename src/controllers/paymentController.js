@@ -6,6 +6,7 @@ const {
   ensureUserToken,
   createBkashPayment,
   executeBkashPayment,
+  queryBkashPayment,
   bkashConfig
 } = require('../services/bkashService');
 const { distributePaymentToWallets } = require('../services/walletService');
@@ -15,6 +16,7 @@ const {
   canUserPayBooking,
   payableAmount
 } = require('../services/paymentEligibility');
+const { ERROR_CODES } = require('../utils/apiResponse');
 
 const uniqueInvoice = () =>
   `CM${Date.now()}${crypto.randomBytes(3).toString('hex')}`.slice(0, 30);
@@ -41,7 +43,8 @@ exports.getToken = async (req, res) => {
     res.error(
       error.message || 'Failed to get bKash token',
       error.details || [],
-      500
+      500,
+      ERROR_CODES.PAYMENT_FAILED
     );
   }
 };
@@ -69,6 +72,23 @@ exports.createPayment = async (req, res) => {
     const amount = payableAmount(booking);
     if (!(amount > 0)) return res.error('Invalid payable amount for this booking');
 
+    const idempotencyKey = req.get('Idempotency-Key') || req.body.idempotency_key || null;
+    if (idempotencyKey) {
+      const existing = await Payment.findByIdempotencyKey(idempotencyKey);
+      if (existing) {
+        return res.success({
+          payment_id: existing.id,
+          booking_id: existing.booking_id,
+          amount: Number(existing.amount),
+          currency: existing.currency || 'BDT',
+          merchantInvoiceNumber: existing.merchant_invoice,
+          paymentID: existing.bkash_payment_id,
+          script: bkashConfig.script,
+          idempotent: true
+        }, 'Payment already created');
+      }
+    }
+
     // Always grant → DB save → then create with that id_token in authorization header
     const { id_token: idToken } = await grantAndSaveUserToken(req.user.id);
     const merchantInvoice = uniqueInvoice();
@@ -79,11 +99,11 @@ exports.createPayment = async (req, res) => {
     });
 
     if (bkashRes?.errorCode && String(bkashRes.errorCode) !== '0000') {
-      return res.error('bKash create payment failed', bkashRes);
+      return res.error('bKash create payment failed', bkashRes, 400, ERROR_CODES.PAYMENT_FAILED);
     }
 
     if (!bkashRes?.paymentID) {
-      return res.error('bKash did not return paymentID', bkashRes);
+      return res.error('bKash did not return paymentID', bkashRes, 400, ERROR_CODES.PAYMENT_FAILED);
     }
 
     const payment = await Payment.createPayment({
@@ -93,7 +113,8 @@ exports.createPayment = async (req, res) => {
       merchant_invoice: merchantInvoice,
       bkash_payment_id: bkashRes.paymentID || null,
       status: 'INITIATED',
-      create_response: bkashRes
+      create_response: bkashRes,
+      idempotency_key: idempotencyKey
     });
 
     res.success(
@@ -119,7 +140,8 @@ exports.createPayment = async (req, res) => {
     res.error(
       error.message || 'Failed to create payment',
       error.details || [],
-      500
+      500,
+      ERROR_CODES.PAYMENT_FAILED
     );
   }
 };
@@ -144,6 +166,14 @@ exports.executePayment = async (req, res) => {
     }
     if (payment.user_id !== req.user.id) {
       return res.forbidden('Access denied');
+    }
+
+    if (String(payment.status).toUpperCase() === 'COMPLETED') {
+      const paidBooking = await findById(payment.booking_id);
+      return res.success(
+        { booking: paidBooking, payment, already_paid: true },
+        'Payment already completed'
+      );
     }
 
     const booking = await findById(payment.booking_id);
@@ -186,7 +216,7 @@ exports.executePayment = async (req, res) => {
         execute_response: bkashRes,
         bkash_payment_id: paymentID
       });
-      return res.error('Payment execution failed', bkashRes);
+      return res.error('Payment execution failed', bkashRes, 400, ERROR_CODES.PAYMENT_FAILED);
     }
 
     const updatedPayment = await Payment.markExecuted(payment.id, {
@@ -278,7 +308,160 @@ exports.executePayment = async (req, res) => {
     res.error(
       error.message || 'Failed to execute payment',
       error.details || [],
-      500
+      500,
+      ERROR_CODES.PAYMENT_FAILED
     );
+  }
+};
+
+exports.queryPayment = async (req, res) => {
+  try {
+    const paymentID = req.body.paymentID || req.query.paymentID;
+    if (!paymentID) return res.badRequest('paymentID is required');
+
+    const payment = await Payment.findByBkashPaymentId(paymentID);
+    if (!payment) return res.notFound('Payment record not found');
+    if (payment.user_id !== req.user.id && req.user.role !== 'ADMIN') {
+      return res.forbidden('Access denied');
+    }
+
+    const idToken = await ensureUserToken(req.user.id);
+    const bkash = await queryBkashPayment(idToken, paymentID);
+    const saved = await Payment.saveQueryResponse(payment.id, bkash);
+
+    return res.success({
+      payment: saved,
+      bkash
+    }, 'Payment queried');
+  } catch (error) {
+    console.error('bKash query error:', error.details || error.message);
+    return res.error(
+      error.message || 'Failed to query payment',
+      error.details || [],
+      500,
+      ERROR_CODES.PAYMENT_FAILED
+    );
+  }
+};
+
+exports.refundPayment = async (req, res) => {
+  try {
+    if (req.user.role !== 'ADMIN') {
+      return res.forbidden('Only admin can refund payments');
+    }
+
+    const paymentID = req.body.paymentId || req.body.paymentID;
+    const { booking_id, sku } = req.body;
+    if (!paymentID && !booking_id) {
+      return res.badRequest('paymentId or booking_id is required');
+    }
+
+    const payment = paymentID
+      ? await Payment.findByBkashPaymentId(paymentID)
+      : (await Payment.findByBookingId(booking_id))[0];
+    if (!payment) return res.notFound('Payment record not found');
+
+    const booking = await findById(payment.booking_id);
+    if (!booking) return res.notFound('Booking not found');
+
+    const remaining = Number((Number(payment.amount) - Number(payment.refunded_amount || 0)).toFixed(2));
+    const refundAmount = Number(req.body.refundAmount || req.body.amount || remaining);
+    const { processBookingRefund } = require('../services/refundService');
+    const result = await processBookingRefund(booking, {
+      refundAmount,
+      reason: req.body.reason || 'Admin refund',
+      sku: sku || booking.booking_number
+    });
+
+    const { writeAudit } = require('../utils/audit');
+    await writeAudit({
+      actorId: req.user.id,
+      action: 'PAYMENT_REFUND',
+      entityType: 'payment',
+      entityId: payment.id,
+      meta: { amount: refundAmount, reason: req.body.reason, refund_trx_id: result.refund?.refund_trx_id }
+    });
+
+    return res.success(result, result.skipped ? 'Refund skipped' : 'Refund completed');
+  } catch (error) {
+    console.error('bKash refund error:', error.details || error.message);
+    return res.error(
+      error.message || 'Failed to refund payment',
+      error.details || [],
+      error.statusCode || 500,
+      ERROR_CODES.PAYMENT_FAILED
+    );
+  }
+};
+
+exports.refundStatus = async (req, res) => {
+  try {
+    if (req.user.role !== 'ADMIN' && !req.user.id) {
+      return res.unauthorized('Authentication required');
+    }
+
+    const paymentID = req.body.paymentId || req.body.paymentID || req.query.paymentId;
+    const bookingId = req.body.booking_id || req.query.booking_id;
+    if (!paymentID && !bookingId) {
+      return res.badRequest('paymentId or booking_id is required');
+    }
+
+    const payment = paymentID
+      ? await Payment.findByBkashPaymentId(paymentID)
+      : (await Payment.findByBookingId(bookingId))[0];
+    if (!payment) return res.notFound('Payment record not found');
+
+    if (req.user.role !== 'ADMIN' && payment.user_id !== req.user.id) {
+      return res.forbidden('Access denied');
+    }
+
+    const { getRefundStatus } = require('../services/refundService');
+    const result = await getRefundStatus(payment);
+    return res.success(result, 'Refund status fetched');
+  } catch (error) {
+    console.error('bKash refund status error:', error.details || error.message);
+    return res.error(
+      error.message || 'Failed to fetch refund status',
+      error.details || [],
+      error.statusCode || 500,
+      ERROR_CODES.PAYMENT_FAILED
+    );
+  }
+};
+
+exports.bkashCallback = async (req, res) => {
+  try {
+    const secret = process.env.BKASH_CALLBACK_SECRET;
+    if (secret && req.get('X-Callback-Secret') !== secret && req.query.secret !== secret) {
+      return res.unauthorized('Invalid callback secret');
+    }
+
+    const paymentID = req.body.paymentID || req.body.paymentId;
+    if (!paymentID) return res.badRequest('paymentID is required');
+
+    const payment = await Payment.findByBkashPaymentId(paymentID);
+    if (!payment) return res.notFound('Payment record not found');
+
+    if (String(payment.status).toUpperCase() === 'COMPLETED') {
+      return res.success({ payment, already_paid: true }, 'Already completed');
+    }
+
+    const idToken = await ensureUserToken(payment.user_id);
+    const bkash = await queryBkashPayment(idToken, paymentID);
+    await Payment.saveQueryResponse(payment.id, bkash);
+
+    const txnStatus = String(bkash?.transactionStatus || bkash?.trxStatus || '').toUpperCase();
+    const success =
+      txnStatus === 'COMPLETED' ||
+      bkash?.statusCode === '0000';
+
+    return res.success({
+      payment,
+      bkash,
+      completed: success
+    }, success ? 'Payment confirmed by callback' : 'Payment not completed yet');
+  } catch (error) {
+    console.error('bKash callback error:', error.message);
+    return res.serverError('Callback failed');
   }
 };

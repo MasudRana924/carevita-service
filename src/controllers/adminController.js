@@ -4,10 +4,13 @@ const { createNotification } = require('../models/Notification');
 const {
   findAll: findAllUsers,
   findById: findUserById,
-  adminUpdateUser
+  adminUpdateUser,
+  countAll: countAllUsers
 } = require('../models/User');
+const { publicUser } = require('../utils/serializers');
+const { parsePagination } = require('../utils/pagination');
+const { writeAudit } = require('../utils/audit');
 const {
-  createHospital,
   findById: findHospitalById,
   updateHospital
 } = require('../models/Hospital');
@@ -16,8 +19,7 @@ exports.getAdminProfile = async (req, res) => {
   try {
     const user = await findUserById(req.user.id);
     if (!user) return res.notFound('Admin not found');
-    const { password, ...safe } = user;
-    res.success(safe);
+    return res.success(publicUser(user), 'Admin profile fetched successfully');
   } catch (error) {
     console.error('Get admin profile error:', error);
     res.serverError('Failed to fetch admin profile');
@@ -143,21 +145,24 @@ exports.getDashboardStats = async (req, res) => {
 
 exports.getAllUsers = async (req, res) => {
   try {
-    const { role, status, page = 1, limit = 20 } = req.query;
-    const offset = (page - 1) * limit;
+    const { role, status } = req.query;
+    const { page, limit, offset } = parsePagination(req.query);
 
-    const users = await findAllUsers({
-      role: role || undefined,
-      status,
-      limit: parseInt(limit),
-      offset: parseInt(offset)
-    });
+    const [users, total] = await Promise.all([
+      findAllUsers({
+        role: role || undefined,
+        status,
+        limit,
+        offset
+      }),
+      countAllUsers({
+        role: role || undefined,
+        status
+      })
+    ]);
 
-    res.success(users.filter((u) => u.role !== 'ADMIN' || role === 'ADMIN'), null, {
-      page: parseInt(page),
-      limit: parseInt(limit),
-      total: users.length
-    });
+    const data = users.filter((u) => u.role !== 'ADMIN' || role === 'ADMIN');
+    return res.paginated(data, { page, limit, total }, 'Users fetched successfully');
   } catch (error) {
     console.error('Get users error:', error);
     res.serverError('Failed to fetch users');
@@ -176,6 +181,12 @@ exports.blockUser = async (req, res) => {
       reference_id: req.params.id,
       reference_type: 'user'
     });
+    await writeAudit({
+      actorId: req.user.id,
+      action: 'USER_BLOCKED',
+      entityType: 'user',
+      entityId: req.params.id
+    });
     res.success(updated, 'User blocked');
   } catch (error) {
     console.error('Block user error:', error);
@@ -187,6 +198,12 @@ exports.unblockUser = async (req, res) => {
   try {
     const updated = await adminUpdateUser(req.params.id, { status: 'active' });
     if (!updated) return res.notFound('User not found');
+    await writeAudit({
+      actorId: req.user.id,
+      action: 'USER_UNBLOCKED',
+      entityType: 'user',
+      entityId: req.params.id
+    });
     res.success(updated, 'User unblocked');
   } catch (error) {
     console.error('Unblock user error:', error);
@@ -209,17 +226,14 @@ exports.updateUserStatus = async (req, res) => {
 
 exports.getAllCaregivers = async (req, res) => {
   try {
-    const { verification_status, page = 1, limit = 20 } = req.query;
-    const caregivers = await searchCaregivers({
+    const { verification_status } = req.query;
+    const { page, limit } = parsePagination(req.query);
+    const { items, total } = await searchCaregivers({
       verification_status,
-      page: parseInt(page),
-      limit: parseInt(limit)
+      page,
+      limit
     });
-    res.success(caregivers, null, {
-      page: parseInt(page),
-      limit: parseInt(limit),
-      total: caregivers.length
-    });
+    return res.paginated(items, { page, limit, total }, 'Caregivers fetched successfully');
   } catch (error) {
     console.error('Get caregivers error:', error);
     res.serverError('Failed to fetch caregivers');
@@ -243,6 +257,13 @@ exports.blockCaregiver = async (req, res) => {
     );
     await adminUpdateUser(row.user_id, { status: 'blocked' });
 
+    await writeAudit({
+      actorId: req.user.id,
+      action: 'CAREGIVER_BLOCKED',
+      entityType: 'caregiver',
+      entityId: row.id,
+      meta: { user_id: row.user_id }
+    });
     res.success({ caregiver_id: row.id, user_id: row.user_id }, 'Caregiver blocked');
   } catch (error) {
     console.error('Block caregiver error:', error);
@@ -266,6 +287,13 @@ exports.unblockCaregiver = async (req, res) => {
     );
     await adminUpdateUser(row.user_id, { status: 'active' });
 
+    await writeAudit({
+      actorId: req.user.id,
+      action: 'CAREGIVER_UNBLOCKED',
+      entityType: 'caregiver',
+      entityId: row.id,
+      meta: { user_id: row.user_id }
+    });
     res.success({ caregiver_id: row.id, user_id: row.user_id }, 'Caregiver unblocked');
   } catch (error) {
     console.error('Unblock caregiver error:', error);
@@ -296,8 +324,8 @@ exports.createHospital = async (req, res) => {
 
 exports.getAllHospitals = async (req, res) => {
   try {
-    const { district, page = 1, limit = 20 } = req.query;
-    const offset = (page - 1) * limit;
+    const { district } = req.query;
+    const { page, limit, offset } = parsePagination(req.query);
     let query = 'SELECT * FROM hospitals WHERE 1=1';
     const values = [];
     let paramCount = 0;
@@ -308,15 +336,20 @@ exports.getAllHospitals = async (req, res) => {
       values.push(district);
     }
 
+    const countQuery = query.replace('SELECT *', 'SELECT COUNT(*)::int AS count');
     query += ` ORDER BY name LIMIT $${paramCount + 1} OFFSET $${paramCount + 2}`;
-    values.push(parseInt(limit), parseInt(offset));
+    values.push(limit, offset);
 
-    const result = await pool.query(query, values);
-    res.success(result.rows, null, {
-      page: parseInt(page),
-      limit: parseInt(limit),
-      total: result.rows.length
-    });
+    const [result, countResult] = await Promise.all([
+      pool.query(query, values),
+      pool.query(countQuery, values.slice(0, paramCount))
+    ]);
+
+    return res.paginated(result.rows, {
+      page,
+      limit,
+      total: countResult.rows[0].count
+    }, 'Hospitals fetched successfully');
   } catch (error) {
     console.error('Get hospitals error:', error);
     res.serverError('Failed to fetch hospitals');

@@ -29,9 +29,21 @@ module.exports = {
     'BKASH_EXECUTE_URL',
     'https://checkout.sandbox.bka.sh/v1.2.0-beta/checkout/payment/execute/'
   ),
+  queryURL: envOr(
+    'BKASH_QUERY_URL',
+    'https://checkout.sandbox.bka.sh/v1.2.0-beta/checkout/payment/query/'
+  ),
   tokenURL: envOr(
     'BKASH_TOKEN_URL',
     'https://checkout.sandbox.bka.sh/v1.2.0-beta/checkout/token/grant'
+  ),
+  refundURL: envOr(
+    'BKASH_REFUND_URL',
+    'https://tokenized.sandbox.bka.sh/v2/tokenized-checkout/refund/payment/transaction'
+  ),
+  refundStatusURL: envOr(
+    'BKASH_REFUND_STATUS_URL',
+    'https://tokenized.sandbox.bka.sh/v2/tokenized-checkout/refund/payment/status'
   ),
   script: envOr(
     'BKASH_SCRIPT',

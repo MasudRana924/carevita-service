@@ -136,6 +136,33 @@ const deleteUser = async (id) => {
   return result.rows[0];
 };
 
+const countAll = async (filters = {}) => {
+  let query = 'SELECT COUNT(*)::int AS count FROM users WHERE 1=1';
+  const values = [];
+  let paramCount = 0;
+
+  if (filters.role) {
+    paramCount++;
+    query += ` AND role = $${paramCount}`;
+    values.push(filters.role);
+  }
+
+  if (filters.status) {
+    paramCount++;
+    query += ` AND status = $${paramCount}`;
+    values.push(filters.status);
+  }
+
+  if (filters.is_verified !== undefined) {
+    paramCount++;
+    query += ` AND is_verified = $${paramCount}`;
+    values.push(filters.is_verified);
+  }
+
+  const result = await pool.query(query, values);
+  return result.rows[0].count;
+};
+
 const findAll = async (filters = {}) => {
   let query = 'SELECT id, phone, email, name, profile_photo, role, status, is_verified, ekyc_status, created_at FROM users WHERE 1=1';
   const values = [];
@@ -197,5 +224,6 @@ module.exports = {
   updateEkyc,
   deleteUser,
   findAll,
+  countAll,
   findByEmailAndPassword
 };

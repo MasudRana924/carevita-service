@@ -91,15 +91,13 @@ const updateVerificationStatus = async (id, status, note) => {
   return result.rows[0];
 };
 
-const searchCaregivers = async (filters = {}) => {
+const buildCaregiverSearch = (filters = {}) => {
   const {
     service_area, name, gender, verification_status, min_rating,
-    district, thana, page = 1, limit = 20
+    district, thana
   } = filters;
-  const offset = (page - 1) * limit;
 
-  let query = `
-    SELECT cp.*, u.name, u.email, u.phone, u.profile_photo
+  let whereSql = `
     FROM caregiver_profiles cp
     JOIN users u ON cp.user_id = u.id
     WHERE 1=1
@@ -109,51 +107,71 @@ const searchCaregivers = async (filters = {}) => {
 
   if (name) {
     paramCount++;
-    query += ` AND u.name ILIKE $${paramCount}`;
+    whereSql += ` AND u.name ILIKE $${paramCount}`;
     values.push(`%${name}%`);
   }
 
   if (district) {
     paramCount++;
-    query += ` AND cp.district ILIKE $${paramCount}`;
+    whereSql += ` AND cp.district ILIKE $${paramCount}`;
     values.push(district);
   }
 
   if (thana) {
     paramCount++;
-    query += ` AND cp.thana ILIKE $${paramCount}`;
+    whereSql += ` AND cp.thana ILIKE $${paramCount}`;
     values.push(thana);
   }
 
   if (service_area) {
     paramCount++;
-    query += ` AND $${paramCount} = ANY(service_areas)`;
+    whereSql += ` AND $${paramCount} = ANY(service_areas)`;
     values.push(service_area);
   }
 
   if (gender) {
     paramCount++;
-    query += ` AND gender = $${paramCount}`;
+    whereSql += ` AND gender = $${paramCount}`;
     values.push(gender);
   }
 
   if (verification_status) {
     paramCount++;
-    query += ` AND verification_status = $${paramCount}`;
+    whereSql += ` AND verification_status = $${paramCount}`;
     values.push(verification_status);
   }
 
   if (min_rating) {
     paramCount++;
-    query += ` AND rating >= $${paramCount}`;
+    whereSql += ` AND rating >= $${paramCount}`;
     values.push(min_rating);
   }
 
-  query += ` ORDER BY rating DESC LIMIT $${paramCount + 1} OFFSET $${paramCount + 2}`;
-  values.push(limit, offset);
+  return { whereSql, values, paramCount };
+};
 
-  const result = await pool.query(query, values);
-  return result.rows;
+const searchCaregivers = async (filters = {}) => {
+  const { page = 1, limit = 20 } = filters;
+  const offset = (page - 1) * limit;
+  const { whereSql, values, paramCount } = buildCaregiverSearch(filters);
+
+  const listQuery = `
+    SELECT cp.*, u.name, u.email, u.phone, u.profile_photo
+    ${whereSql}
+    ORDER BY rating DESC
+    LIMIT $${paramCount + 1} OFFSET $${paramCount + 2}
+  `;
+  const countQuery = `SELECT COUNT(*)::int AS count ${whereSql}`;
+
+  const [result, countResult] = await Promise.all([
+    pool.query(listQuery, [...values, limit, offset]),
+    pool.query(countQuery, values)
+  ]);
+
+  return {
+    items: result.rows,
+    total: countResult.rows[0].count
+  };
 };
 
 const updateRating = async (id, newRating) => {

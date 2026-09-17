@@ -354,6 +354,120 @@ const migrate = async ({ closePool = true } = {}) => {
     await client.query('CREATE INDEX IF NOT EXISTS idx_reviews_user ON reviews(user_id)');
     await client.query('CREATE INDEX IF NOT EXISTS idx_bookings_status ON bookings(status)');
 
+    await client.query('ALTER TABLE reviews ADD COLUMN IF NOT EXISTS comment TEXT');
+    await client.query('ALTER TABLE payments ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR(100)');
+    await client.query('ALTER TABLE payments ADD COLUMN IF NOT EXISTS refund_response JSONB DEFAULT \'{}\'::jsonb');
+    await client.query('ALTER TABLE payments ADD COLUMN IF NOT EXISTS refunded_amount DECIMAL(10, 2) DEFAULT 0');
+    await client.query('ALTER TABLE payments ADD COLUMN IF NOT EXISTS refunded_at TIMESTAMP');
+    await client.query('ALTER TABLE payments ADD COLUMN IF NOT EXISTS query_response JSONB DEFAULT \'{}\'::jsonb');
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS payment_refunds (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        payment_id UUID NOT NULL REFERENCES payments(id) ON DELETE CASCADE,
+        booking_id UUID REFERENCES bookings(id) ON DELETE SET NULL,
+        refund_amount DECIMAL(10, 2) NOT NULL,
+        sku VARCHAR(255),
+        reason VARCHAR(255),
+        refund_trx_id VARCHAR(100),
+        original_trx_id VARCHAR(100),
+        status VARCHAR(50) DEFAULT 'PENDING',
+        response JSONB DEFAULT '{}'::jsonb,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    await client.query('CREATE INDEX IF NOT EXISTS idx_payment_refunds_payment ON payment_refunds(payment_id)');
+    await client.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS uq_payments_idempotency
+      ON payments (idempotency_key)
+      WHERE idempotency_key IS NOT NULL
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS booking_provider_rejections (
+        booking_id UUID NOT NULL REFERENCES bookings(id) ON DELETE CASCADE,
+        caregiver_profile_id UUID NOT NULL REFERENCES caregiver_profiles(id) ON DELETE CASCADE,
+        reason TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (booking_id, caregiver_profile_id)
+      )
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS caregiver_availability (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        caregiver_profile_id UUID NOT NULL REFERENCES caregiver_profiles(id) ON DELETE CASCADE,
+        day_of_week SMALLINT NOT NULL CHECK (day_of_week BETWEEN 0 AND 6),
+        start_time TIME NOT NULL,
+        end_time TIME NOT NULL,
+        is_active BOOLEAN DEFAULT true,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    await client.query('CREATE INDEX IF NOT EXISTS idx_availability_profile ON caregiver_availability(caregiver_profile_id)');
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS notification_preferences (
+        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        type VARCHAR(100) NOT NULL,
+        enabled BOOLEAN NOT NULL DEFAULT true,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (user_id, type)
+      )
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS withdrawals (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        caregiver_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        wallet_id UUID NOT NULL REFERENCES wallets(id),
+        amount DECIMAL(12, 2) NOT NULL,
+        bkash_number VARCHAR(20) NOT NULL,
+        status VARCHAR(50) DEFAULT 'PENDING',
+        admin_note TEXT,
+        processed_by UUID REFERENCES users(id),
+        processed_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    await client.query('CREATE INDEX IF NOT EXISTS idx_withdrawals_user ON withdrawals(caregiver_user_id)');
+    await client.query('CREATE INDEX IF NOT EXISTS idx_withdrawals_status ON withdrawals(status)');
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS disputes (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        booking_id UUID NOT NULL REFERENCES bookings(id) ON DELETE CASCADE,
+        raised_by UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        role VARCHAR(50) NOT NULL,
+        reason VARCHAR(255) NOT NULL,
+        details TEXT,
+        status VARCHAR(50) DEFAULT 'OPEN',
+        resolution TEXT,
+        resolved_by UUID REFERENCES users(id),
+        resolved_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    await client.query('CREATE INDEX IF NOT EXISTS idx_disputes_booking ON disputes(booking_id)');
+    await client.query('CREATE INDEX IF NOT EXISTS idx_disputes_status ON disputes(status)');
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS audit_logs (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        actor_id UUID REFERENCES users(id) ON DELETE SET NULL,
+        action VARCHAR(100) NOT NULL,
+        entity_type VARCHAR(50) NOT NULL,
+        entity_id UUID,
+        meta JSONB DEFAULT '{}'::jsonb,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    await client.query('CREATE INDEX IF NOT EXISTS idx_audit_entity ON audit_logs(entity_type, entity_id)');
+    await client.query('CREATE INDEX IF NOT EXISTS idx_audit_actor ON audit_logs(actor_id)');
+
     await client.query('COMMIT');
     console.log('Core migration completed successfully');
   } catch (error) {

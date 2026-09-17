@@ -1,15 +1,13 @@
 const { verifyToken } = require('../config/jwt');
 const pool = require('../config/database');
+const { ERROR_CODES } = require('../utils/apiResponse');
 
 const authenticate = async (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
-    
+
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ 
-        success: false, 
-        message: 'Access denied. No token provided.' 
-      });
+      return res.unauthorized('Access denied. No token provided.');
     }
 
     const token = authHeader.substring(7);
@@ -21,40 +19,33 @@ const authenticate = async (req, res, next) => {
     );
 
     if (result.rows.length === 0) {
-      return res.status(401).json({ 
-        success: false, 
-        message: 'Invalid token. User not found.' 
-      });
+      return res.unauthorized('Invalid token. User not found.', ERROR_CODES.TOKEN_INVALID);
     }
 
     const user = result.rows[0];
 
     if (user.status !== 'active') {
-      return res.status(403).json({ 
-        success: false, 
-        message: 'Account is not active.' 
-      });
+      return res.forbidden('Account is not active.', ERROR_CODES.ACCOUNT_INACTIVE);
     }
 
     req.user = user;
-    req.user.id = user.id;
     next();
   } catch (error) {
     console.error('Authentication error:', error);
-    return res.status(401).json({ 
-      success: false, 
-      message: 'Invalid token.' 
-    });
+    const code = error.name === 'TokenExpiredError'
+      ? ERROR_CODES.TOKEN_EXPIRED
+      : ERROR_CODES.TOKEN_INVALID;
+    return res.unauthorized(
+      error.name === 'TokenExpiredError' ? 'Token expired.' : 'Invalid token.',
+      code
+    );
   }
 };
 
 const authorize = (...roles) => {
   return (req, res, next) => {
     if (!roles.includes(req.user.role)) {
-      return res.status(403).json({ 
-        success: false, 
-        message: 'Not authorized to access this resource.' 
-      });
+      return res.forbidden('Not authorized to access this resource.');
     }
     next();
   };

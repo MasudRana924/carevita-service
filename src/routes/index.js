@@ -24,11 +24,7 @@ router.use('/notifications', notificationTokenRoutes);
 router.use('/payments', paymentRoutes);
 
 router.get('/health', (req, res) => {
-  res.status(200).json({
-    success: true,
-    message: 'CareMate API is running',
-    timestamp: new Date().toISOString()
-  });
+  res.success({ status: 'ok' }, 'CareMate API is running');
 });
 
 module.exports = router;

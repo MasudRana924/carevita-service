@@ -93,6 +93,27 @@ const markAllAsRead = async (user_id) => {
   return result.rows;
 };
 
+const countByUserId = async (user_id, filters = {}) => {
+  let query = 'SELECT COUNT(*)::int AS count FROM inbox WHERE user_id = $1';
+  const values = [user_id];
+  let paramCount = 1;
+
+  if (filters.is_read !== undefined) {
+    paramCount++;
+    query += ` AND is_read = $${paramCount}`;
+    values.push(filters.is_read === true || filters.is_read === 'true');
+  }
+
+  if (filters.type) {
+    paramCount++;
+    query += ` AND type = $${paramCount}`;
+    values.push(filters.type);
+  }
+
+  const result = await pool.query(query, values);
+  return result.rows[0].count;
+};
+
 const getUnreadCount = async (user_id) => {
   const result = await pool.query(
     'SELECT COUNT(*)::int AS count FROM inbox WHERE user_id = $1 AND is_read = false',
@@ -104,6 +125,7 @@ const getUnreadCount = async (user_id) => {
 module.exports = {
   createInboxItem,
   findByUserId,
+  countByUserId,
   findByIdForUser,
   markAsRead,
   markAllAsRead,

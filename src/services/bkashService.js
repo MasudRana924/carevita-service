@@ -148,11 +148,153 @@ const executeBkashPayment = async (idToken, paymentID) => {
   return response.data;
 };
 
+const queryBkashPayment = async (idToken, paymentID) => {
+  const response = await axios.get(
+    `${bkashConfig.queryURL}${paymentID}`,
+    {
+      headers: authHeaders(idToken),
+      timeout: 30000,
+      validateStatus: () => true
+    }
+  );
+
+  if (response.status >= 400) {
+    const err = new Error(
+      response.data?.statusMessage ||
+        response.data?.errorMessage ||
+        response.data?.errorMessageEn ||
+        'bKash query payment HTTP error'
+    );
+    err.details = response.data;
+    err.status = response.status;
+    throw err;
+  }
+
+  return response.data;
+};
+
+const bkashError = (data, fallback) => {
+  const message =
+    data?.errorMessageEn ||
+    data?.errorMessage ||
+    data?.statusMessage ||
+    data?.message ||
+    fallback;
+  const err = new Error(message);
+  err.details = data;
+  err.statusCode = 400;
+  err.code = 'PAYMENT_FAILED';
+  err.externalCode = data?.externalCode || data?.internalCode;
+  return err;
+};
+
+const isTimeoutError = (error) =>
+  error?.code === 'ECONNABORTED' ||
+  /timeout/i.test(String(error?.message || ''));
+
+const isRefundCompleted = (body) =>
+  String(body?.refundTransactionStatus || '').toLowerCase() === 'completed';
+
+const clip = (value, max = 255, fallback = '') =>
+  String(value || fallback).slice(0, max);
+
+const formatAmount = (amount) => Number(amount).toFixed(2);
+
+/**
+ * Tokenized Checkout v2 Refund Transaction
+ * POST /v2/tokenized-checkout/refund/payment/transaction
+ * Success only when refundTransactionStatus === Completed
+ * On 30s timeout, caller should use refund status API.
+ */
+const refundBkashPayment = async (idToken, {
+  paymentId,
+  trxId,
+  refundAmount,
+  sku = 'CareMate',
+  reason = 'Booking cancelled'
+}) => {
+  try {
+    const response = await axios.post(
+      bkashConfig.refundURL,
+      {
+        paymentId: String(paymentId),
+        trxId: String(trxId),
+        refundAmount: formatAmount(refundAmount),
+        sku: clip(sku, 255, 'CareMate'),
+        reason: clip(reason, 255, 'Refund')
+      },
+      {
+        headers: authHeaders(idToken),
+        timeout: 30000,
+        validateStatus: () => true
+      }
+    );
+
+    const body = response.data || {};
+    if (response.status >= 400 || body.externalCode || body.errorMessageEn) {
+      throw bkashError(body, 'bKash refund failed');
+    }
+    if (!isRefundCompleted(body)) {
+      throw bkashError(body, `Refund not completed (${body.refundTransactionStatus || 'unknown'})`);
+    }
+    return body;
+  } catch (error) {
+    if (isTimeoutError(error)) {
+      const timeoutErr = new Error('bKash refund timed out after 30 seconds');
+      timeoutErr.code = 'REFUND_TIMEOUT';
+      timeoutErr.details = { paymentId, trxId };
+      throw timeoutErr;
+    }
+    throw error;
+  }
+};
+
+/**
+ * Tokenized Checkout v2 Refund Status
+ * POST /v2/tokenized-checkout/refund/payment/status
+ */
+const queryBkashRefundStatus = async (idToken, { paymentId, trxId }) => {
+  const response = await axios.post(
+    bkashConfig.refundStatusURL,
+    {
+      paymentId: String(paymentId),
+      trxId: String(trxId)
+    },
+    {
+      headers: authHeaders(idToken),
+      timeout: 30000,
+      validateStatus: () => true
+    }
+  );
+
+  const body = response.data || {};
+  if (response.status >= 400 || body.externalCode || body.errorMessageEn) {
+    throw bkashError(body, 'bKash refund status failed');
+  }
+  return body;
+};
+
+const findCompletedRefund = (statusBody, refundAmount) => {
+  const list = statusBody?.refundTransactions || [];
+  const target = formatAmount(refundAmount);
+  return list.find((item) => {
+    const completed = String(item.refundTransactionStatus || '').toLowerCase() === 'completed';
+    if (!completed) return false;
+    if (refundAmount == null) return true;
+    return formatAmount(item.refundAmount) === target;
+  }) || null;
+};
+
 module.exports = {
   grantTokenFromBkash,
   grantAndSaveUserToken,
   ensureUserToken,
   createBkashPayment,
   executeBkashPayment,
+  queryBkashPayment,
+  refundBkashPayment,
+  queryBkashRefundStatus,
+  findCompletedRefund,
+  isRefundCompleted,
   bkashConfig
 };

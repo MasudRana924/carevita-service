@@ -4,18 +4,25 @@ const { authenticate, authorize } = require('../middleware/auth');
 const upload = require('../middleware/upload');
 const caregiverController = require('../controllers/caregiverController');
 const bookingController = require('../controllers/bookingController');
+const availabilityController = require('../controllers/availabilityController');
+const withdrawalController = require('../controllers/withdrawalController');
 
 router.post('/profile', authenticate, authorize('CAREGIVER'), upload.single('profile_photo'), caregiverController.createProfile);
 router.get('/profile', authenticate, authorize('CAREGIVER'), caregiverController.getMyProfile);
 router.put('/profile', authenticate, authorize('CAREGIVER'), upload.single('profile_photo'), caregiverController.updateMyProfile);
 router.get('/search', caregiverController.searchCaregivers);
+router.get('/availability', authenticate, authorize('CAREGIVER'), availabilityController.getMyAvailability);
+router.put('/availability', authenticate, authorize('CAREGIVER'), availabilityController.updateMyAvailability);
 router.get('/bookings/my', authenticate, authorize('CAREGIVER'), caregiverController.getMyBookings);
 router.get('/wallet', authenticate, authorize('CAREGIVER'), caregiverController.getMyWallet);
 router.get('/reviews/my', authenticate, authorize('CAREGIVER'), caregiverController.getMyReviews);
+router.post('/withdrawals', authenticate, authorize('CAREGIVER'), withdrawalController.requestWithdrawal);
+router.get('/withdrawals', authenticate, authorize('CAREGIVER'), withdrawalController.myWithdrawals);
 router.post('/bookings/:id/accept', authenticate, authorize('CAREGIVER'), bookingController.acceptBooking);
 router.post('/bookings/:id/reject', authenticate, authorize('CAREGIVER'), bookingController.rejectBooking);
 router.post('/bookings/:id/start', authenticate, authorize('CAREGIVER'), bookingController.startBooking);
 router.post('/bookings/:id/complete', authenticate, authorize('CAREGIVER'), bookingController.completeBooking);
+router.get('/:id/availability', availabilityController.getPublicAvailability);
 router.get('/:id', caregiverController.viewCaregiverProfile);
 
 module.exports = router;

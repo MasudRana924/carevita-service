@@ -59,10 +59,25 @@ const deactivateAllUserTokens = async (user_id) => {
   return result.rows;
 };
 
+const deactivateByTokens = async (tokens = []) => {
+  if (!tokens.length) return 0;
+  const result = await pool.query(
+    `
+    UPDATE notification_tokens
+    SET is_active = false, updated_at = CURRENT_TIMESTAMP
+    WHERE token = ANY($1::text[]) AND is_active = true
+    RETURNING id
+    `,
+    [tokens]
+  );
+  return result.rowCount;
+};
+
 module.exports = {
   createNotificationToken,
   getUserTokens,
   deleteNotificationToken,
   deleteTokenByDevice,
-  deactivateAllUserTokens
+  deactivateAllUserTokens,
+  deactivateByTokens
 };

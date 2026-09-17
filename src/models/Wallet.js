@@ -57,24 +57,75 @@ const credit = async (client, {
   description = null,
   meta = {}
 }) => {
+  return mutateBalance(client, {
+    walletId,
+    userId,
+    bookingId,
+    paymentId,
+    amount,
+    direction: 'CREDIT',
+    category,
+    description,
+    meta
+  });
+};
+
+const debit = async (client, {
+  walletId,
+  userId = null,
+  bookingId = null,
+  paymentId = null,
+  amount,
+  category,
+  description = null,
+  meta = {}
+}) => {
+  return mutateBalance(client, {
+    walletId,
+    userId,
+    bookingId,
+    paymentId,
+    amount,
+    direction: 'DEBIT',
+    category,
+    description,
+    meta
+  });
+};
+
+const mutateBalance = async (client, {
+  walletId,
+  userId = null,
+  bookingId = null,
+  paymentId = null,
+  amount,
+  direction,
+  category,
+  description = null,
+  meta = {}
+}) => {
   const db = client || pool;
   const amt = Number(amount);
   if (!(amt > 0)) {
-    throw new Error('Credit amount must be > 0');
+    throw new Error(`${direction} amount must be > 0`);
   }
 
+  const operator = direction === 'DEBIT' ? '-' : '+';
   const updated = await db.query(
     `
     UPDATE wallets
-    SET balance = balance + $1,
+    SET balance = balance ${operator} $1,
         updated_at = CURRENT_TIMESTAMP
     WHERE id = $2
+      AND ($3::text = 'CREDIT' OR balance >= $1)
     RETURNING *
     `,
-    [amt, walletId]
+    [amt, walletId, direction]
   );
   const wallet = updated.rows[0];
-  if (!wallet) throw new Error('Wallet not found');
+  if (!wallet) {
+    throw new Error(direction === 'DEBIT' ? 'Insufficient wallet balance' : 'Wallet not found');
+  }
 
   const tx = await db.query(
     `
@@ -82,7 +133,7 @@ const credit = async (client, {
       wallet_id, user_id, booking_id, payment_id,
       amount, direction, category, description, balance_after, meta
     )
-    VALUES ($1, $2, $3, $4, $5, 'CREDIT', $6, $7, $8, $9)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
     RETURNING *
     `,
     [
@@ -91,6 +142,7 @@ const credit = async (client, {
       bookingId,
       paymentId,
       amt,
+      direction,
       category,
       description,
       wallet.balance,
@@ -128,6 +180,7 @@ module.exports = {
   findByUserId,
   getPlatformWallet,
   credit,
+  debit,
   hasPaymentCredits,
   listTransactions
 };

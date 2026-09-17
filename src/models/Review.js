@@ -1,13 +1,13 @@
 const pool = require('../config/database');
 
-const createReview = async ({ booking_id, user_id, caregiver_profile_id, rating }) => {
+const createReview = async ({ booking_id, user_id, caregiver_profile_id, rating, comment = null }) => {
   const result = await pool.query(
     `
-    INSERT INTO reviews (booking_id, user_id, caregiver_profile_id, rating)
-    VALUES ($1, $2, $3, $4)
+    INSERT INTO reviews (booking_id, user_id, caregiver_profile_id, rating, comment)
+    VALUES ($1, $2, $3, $4, $5)
     RETURNING *
     `,
-    [booking_id, user_id, caregiver_profile_id, rating]
+    [booking_id, user_id, caregiver_profile_id, rating, comment]
   );
   return result.rows[0];
 };

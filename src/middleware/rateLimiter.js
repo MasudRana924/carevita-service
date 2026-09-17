@@ -1,25 +1,32 @@
 const rateLimit = require('express-rate-limit');
+const { sendFail, ERROR_CODES } = require('../utils/apiResponse');
 
 const authLimiter = rateLimit({
-  windowMs: 150 * 60 * 1000, // 15 minutes
-  max: 50, // 5 requests per windowMs
-  message: {
-    success: false,
-    message: 'Too many authentication attempts, please try again later.',
-  },
+  windowMs: 15 * 60 * 1000,
+  max: 50,
   standardHeaders: true,
   legacyHeaders: false,
+  handler: (req, res) => {
+    sendFail(req, res, {
+      message: 'Too many authentication attempts, please try again later.',
+      statusCode: 429,
+      code: ERROR_CODES.TOO_MANY_REQUESTS
+    });
+  }
 });
 
 const apiLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // 100 requests per windowMs
-  message: {
-    success: false,
-    message: 'Too many requests, please try again later.',
-  },
+  windowMs: 15 * 60 * 1000,
+  max: 100,
   standardHeaders: true,
   legacyHeaders: false,
+  handler: (req, res) => {
+    sendFail(req, res, {
+      message: 'Too many requests, please try again later.',
+      statusCode: 429,
+      code: ERROR_CODES.TOO_MANY_REQUESTS
+    });
+  }
 });
 
 module.exports = { authLimiter, apiLimiter };

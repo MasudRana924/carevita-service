@@ -79,19 +79,10 @@ exports.addFamilyMember = async (req, res) => {
 exports.listFamilyMembers = async (req, res) => {
   try {
     const familyMembers = await findByUserId(req.user.id);
-
-    if (!familyMembers || familyMembers.length === 0) {
-      return res.success(null, 'No family members added yet');
-    }
-
-    res.success(familyMembers);
+    return res.success(familyMembers || [], familyMembers?.length ? 'Family members fetched successfully' : 'No family members added yet');
   } catch (error) {
     console.error('List family members error:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Failed to list family members',
-      error: error.message
-    });
+    return res.serverError('Failed to list family members');
   }
 };
 

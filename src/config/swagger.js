@@ -43,6 +43,37 @@ User star review → \`POST /bookings/{id}/review\` \`{ rating: 1-5 }\` (no mess
           scheme: 'bearer',
           bearerFormat: 'JWT'
         }
+      },
+      schemas: {
+        SuccessResponse: {
+          type: 'object',
+          properties: {
+            success: { type: 'boolean', example: true },
+            statusCode: { type: 'integer', example: 200 },
+            message: { type: 'string', example: 'Success' },
+            data: {},
+            meta: {
+              type: 'object',
+              properties: {
+                requestId: { type: 'string' },
+                timestamp: { type: 'string', format: 'date-time' },
+                path: { type: 'string' }
+              }
+            }
+          }
+        },
+        ErrorResponse: {
+          type: 'object',
+          properties: {
+            success: { type: 'boolean', example: false },
+            statusCode: { type: 'integer', example: 400 },
+            message: { type: 'string' },
+            code: { type: 'string', example: 'BAD_REQUEST' },
+            errors: { type: 'array', items: { type: 'object' } },
+            data: { nullable: true },
+            meta: { type: 'object' }
+          }
+        }
       }
     },
     security: [{ bearerAuth: [] }]

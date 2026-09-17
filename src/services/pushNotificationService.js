@@ -1,13 +1,16 @@
 const {
   createInboxItem
 } = require('../models/Inbox');
-const { getUserTokens } = require('../models/NotificationToken');
+const { getUserTokens, deactivateByTokens } = require('../models/NotificationToken');
+const { isEnabled } = require('../models/NotificationPreference');
 const { getFirebaseMessaging } = require('../config/firebase');
 
-/**
- * Save inbox row + send FCM push (best-effort).
- * data payload always includes booking_id / inbox_id as strings for deep-link.
- */
+const INVALID_FCM_CODES = new Set([
+  'messaging/registration-token-not-registered',
+  'messaging/invalid-registration-token',
+  'messaging/invalid-argument'
+]);
+
 const notifyUser = async ({
   userId,
   title,
@@ -34,9 +37,15 @@ const notifyUser = async ({
     data: payloadData
   });
 
+  const pushEnabled = await isEnabled(userId, type);
+  let push = { attempted: false, successCount: 0, failureCount: 0, muted: !pushEnabled };
+
+  if (!pushEnabled) {
+    return { inbox, push };
+  }
+
   const tokenRows = await getUserTokens(userId);
   const tokens = tokenRows.map((row) => row.token).filter(Boolean);
-  let push = { attempted: false, successCount: 0, failureCount: 0 };
 
   if (tokens.length > 0) {
     try {
@@ -53,10 +62,23 @@ const notifyUser = async ({
           )
         }
       });
+
+      const invalidTokens = [];
+      (response.responses || []).forEach((item, index) => {
+        const code = item.error?.code;
+        if (!item.success && INVALID_FCM_CODES.has(code)) {
+          invalidTokens.push(tokens[index]);
+        }
+      });
+      if (invalidTokens.length) {
+        await deactivateByTokens(invalidTokens);
+      }
+
       push = {
         attempted: true,
         successCount: response.successCount,
-        failureCount: response.failureCount
+        failureCount: response.failureCount,
+        cleaned: invalidTokens.length
       };
     } catch (err) {
       console.error('FCM send failed:', err.message);
