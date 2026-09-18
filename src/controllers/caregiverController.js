@@ -12,6 +12,36 @@ const { journeyFlags, presentBooking } = require('../services/bookingJourney');
 const { parsePagination } = require('../utils/pagination');
 const { syncProfileFromUser } = require('../services/ekycService');
 
+/** Parse multipart/JSON service_areas into a TEXT[]-safe JS array. */
+const parseServiceAreas = (value) => {
+  if (value == null || value === '') return undefined;
+  if (Array.isArray(value)) {
+    return value.map((v) => String(v).trim()).filter(Boolean);
+  }
+  const raw = String(value).trim();
+  if (!raw) return undefined;
+  if (raw.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        return parsed.map((v) => String(v).trim()).filter(Boolean);
+      }
+    } catch {
+      // fall through to comma / single value
+    }
+  }
+  return raw.split(',').map((v) => v.trim()).filter(Boolean);
+};
+
+const parseBoolean = (value) => {
+  if (value == null || value === '') return undefined;
+  if (typeof value === 'boolean') return value;
+  const s = String(value).trim().toLowerCase();
+  if (['true', '1', 'yes'].includes(s)) return true;
+  if (['false', '0', 'no'].includes(s)) return false;
+  return undefined;
+};
+
 exports.createProfile = async (req, res) => {
   try {
     const {
@@ -33,9 +63,9 @@ exports.createProfile = async (req, res) => {
     const profile = await createCaregiverProfile({
       user_id: req.user.id,
       bio,
-      experience_years,
-      service_areas,
-      hourly_rate,
+      experience_years: experience_years != null && experience_years !== '' ? Number(experience_years) : undefined,
+      service_areas: parseServiceAreas(service_areas),
+      hourly_rate: hourly_rate != null && hourly_rate !== '' ? Number(hourly_rate) : undefined,
       education,
       blood_group,
       date_of_birth,
@@ -75,17 +105,17 @@ exports.updateMyProfile = async (req, res) => {
     const profile = await getCaregiverProfileByUserId(req.user.id);
     if (!profile) return res.notFound('Profile not found');
 
-    const profilePhoto = req.file ? req.file.path : profile.profile_photo;
+    const profilePhoto = req.file ? req.file.path : undefined;
 
     const updatedProfile = await updateCaregiverProfile(profile.id, {
       bio,
-      experience_years,
-      service_areas,
-      hourly_rate,
-      is_available,
+      experience_years: experience_years != null && experience_years !== '' ? Number(experience_years) : undefined,
+      service_areas: parseServiceAreas(service_areas),
+      hourly_rate: hourly_rate != null && hourly_rate !== '' ? Number(hourly_rate) : undefined,
+      is_available: parseBoolean(is_available),
       education,
       blood_group,
-      date_of_birth,
+      date_of_birth: date_of_birth || undefined,
       profile_photo: profilePhoto,
       gender,
       district: district !== undefined ? String(district).trim() : undefined,
