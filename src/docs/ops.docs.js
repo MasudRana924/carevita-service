@@ -65,19 +65,47 @@
  *       200:
  *         $ref: '#/components/responses/Success'
  *
+ * /caregiver/withdrawals/delivery-methods:
+ *   get:
+ *     tags: [Caregiver]
+ *     summary: List withdrawal delivery methods (MFS, BANK)
+ *     responses:
+ *       200:
+ *         $ref: '#/components/responses/Success'
+ *
+ * /caregiver/withdrawals/delivery-methods/{method}:
+ *   get:
+ *     tags: [Caregiver]
+ *     summary: Get dynamic form fields for a delivery method
+ *     parameters:
+ *       - in: path
+ *         name: method
+ *         required: true
+ *         schema: { type: string, enum: [MFS, BANK] }
+ *     responses:
+ *       200:
+ *         $ref: '#/components/responses/Success'
+ *
  * /caregiver/withdrawals:
  *   post:
  *     tags: [Caregiver]
- *     summary: Request wallet withdrawal to bKash
+ *     summary: Request wallet withdrawal (MFS or BANK)
  *     requestBody:
  *       content:
  *         application/json:
  *           schema:
  *             type: object
- *             required: [amount, bkash_number]
+ *             required: [amount, method, delivery_details]
  *             properties:
  *               amount: { type: number, example: 500 }
- *               bkash_number: { type: string, example: "01700000000" }
+ *               method: { type: string, enum: [MFS, BANK], example: MFS }
+ *               delivery_details:
+ *                 type: object
+ *                 description: Fields from GET delivery-methods/{method}
+ *                 example:
+ *                   account_name: "Rahim Uddin"
+ *                   wallet_number: "01700000000"
+ *                   mfs_provider: "bkash"
  *     responses:
  *       201:
  *         $ref: '#/components/responses/Success'

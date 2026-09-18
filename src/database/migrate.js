@@ -425,7 +425,9 @@ const migrate = async ({ closePool = true } = {}) => {
         caregiver_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
         wallet_id UUID NOT NULL REFERENCES wallets(id),
         amount DECIMAL(12, 2) NOT NULL,
-        bkash_number VARCHAR(20) NOT NULL,
+        method VARCHAR(20) DEFAULT 'MFS',
+        delivery_details JSONB DEFAULT '{}'::jsonb,
+        bkash_number VARCHAR(20),
         status VARCHAR(50) DEFAULT 'PENDING',
         admin_note TEXT,
         processed_by UUID REFERENCES users(id),
@@ -434,6 +436,9 @@ const migrate = async ({ closePool = true } = {}) => {
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
+    await client.query('ALTER TABLE withdrawals ADD COLUMN IF NOT EXISTS method VARCHAR(20) DEFAULT \'MFS\'');
+    await client.query('ALTER TABLE withdrawals ADD COLUMN IF NOT EXISTS delivery_details JSONB DEFAULT \'{}\'::jsonb');
+    await client.query('ALTER TABLE withdrawals ALTER COLUMN bkash_number DROP NOT NULL');
     await client.query('CREATE INDEX IF NOT EXISTS idx_withdrawals_user ON withdrawals(caregiver_user_id)');
     await client.query('CREATE INDEX IF NOT EXISTS idx_withdrawals_status ON withdrawals(status)');
 

@@ -5,6 +5,10 @@ const transporter = require('../config/nodemailer');
 const { authUser, publicUser } = require('../utils/serializers');
 const { ERROR_CODES } = require('../utils/apiResponse');
 
+/** Static OTP used when email delivery fails (and always stored in DB). */
+const STATIC_OTP = '5852';
+const OTP_TTL_MS = 30 * 60 * 1000; // 30 minutes
+
 const sendEmailOTP = async (email, otp) => {
   try {
     const mailOptions = {
@@ -18,7 +22,7 @@ const sendEmailOTP = async (email, otp) => {
           <div style="background-color: #f0f0f0; padding: 15px; text-align: center; font-size: 24px; font-weight: bold; letter-spacing: 5px; margin: 20px 0;">
             ${otp}
           </div>
-          <p>This code will expire in 1 minute.</p>
+          <p>This code will expire in 30 minutes.</p>
           <p style="color: #666; font-size: 12px;">If you didn't request this code, please ignore this email.</p>
         </div>
       `
@@ -31,8 +35,17 @@ const sendEmailOTP = async (email, otp) => {
   }
 };
 
-const generateOTP = () => {
-  return '5852';
+const generateOTP = () => STATIC_OTP;
+
+const saveRegistrationOTP = async (email, type = 'registration') => {
+  const otp = generateOTP();
+  const expiresAt = new Date(Date.now() + OTP_TTL_MS);
+  await pool.query(
+    `INSERT INTO otp_verifications (email, otp, type, expires_at)
+     VALUES ($1, $2, $3, $4)`,
+    [email, otp, type, expiresAt]
+  );
+  return { otp, expiresAt };
 };
 
 exports.sendOTP = async (req, res) => {
@@ -43,22 +56,16 @@ exports.sendOTP = async (req, res) => {
       return res.error('Email is required');
     }
 
-    const otp = generateOTP();
-    const expiresAt = new Date(Date.now() + 1 * 60 * 1000);
-
-    await pool.query(
-      `INSERT INTO otp_verifications (email, otp, type, expires_at)
-       VALUES ($1, $2, $3, $4)`,
-      [email, otp, type || 'registration', expiresAt]
-    );
-
+    const { otp, expiresAt } = await saveRegistrationOTP(email, type || 'registration');
     const emailSent = await sendEmailOTP(email, otp);
 
-    if (!emailSent) {
-      return res.serverError('Failed to send OTP email');
-    }
-
-    res.success({ expiresAt }, 'OTP sent successfully');
+    // Email failure is non-blocking: OTP 5852 is already saved and can be verified
+    return res.success(
+      { expiresAt, email_sent: emailSent },
+      emailSent
+        ? 'OTP sent successfully'
+        : 'OTP saved. Email delivery failed — use OTP 5852 to verify.'
+    );
   } catch (error) {
     console.error('Send OTP error:', error);
     res.serverError('Failed to send OTP');
@@ -73,13 +80,29 @@ exports.verifyOTP = async (req, res) => {
       return res.error('Email and OTP are required');
     }
 
-    const result = await pool.query(
-      `SELECT * FROM otp_verifications 
-       WHERE email = $1 AND otp = $2 AND type = 'registration'
-       AND is_used = false AND expires_at > NOW()
-       ORDER BY created_at DESC LIMIT 1`,
-      [email, otp]
-    );
+    const submittedOtp = String(otp).trim();
+    const isStaticOtp = submittedOtp === STATIC_OTP;
+
+    // Static OTP 5852: accept latest unused registration OTP even if expired
+    // (email may have failed; OTP is still stored as 5852)
+    let result;
+    if (isStaticOtp) {
+      result = await pool.query(
+        `SELECT * FROM otp_verifications
+         WHERE email = $1 AND type = 'registration' AND is_used = false
+           AND otp = $2
+         ORDER BY created_at DESC LIMIT 1`,
+        [email, STATIC_OTP]
+      );
+    } else {
+      result = await pool.query(
+        `SELECT * FROM otp_verifications
+         WHERE email = $1 AND otp = $2 AND type = 'registration'
+           AND is_used = false AND expires_at > NOW()
+         ORDER BY created_at DESC LIMIT 1`,
+        [email, submittedOtp]
+      );
+    }
 
     if (result.rows.length === 0) {
       return res.error('Invalid or expired OTP', [], 400, ERROR_CODES.OTP_INVALID);
@@ -132,23 +155,17 @@ exports.register = async (req, res) => {
       role: role || 'USER'
     });
 
-    const otp = generateOTP();
-    const expiresAt = new Date(Date.now() + 1 * 60 * 1000);
-
-    await pool.query(
-      `INSERT INTO otp_verifications (email, otp, type, expires_at)
-       VALUES ($1, $2, $3, $4)`,
-      [email, otp, 'registration', expiresAt]
-    );
-
+    const { otp, expiresAt } = await saveRegistrationOTP(email, 'registration');
     const emailSent = await sendEmailOTP(email, otp);
 
     const userPayload = authUser(user);
-    const message = role === 'ADMIN'
-      ? 'Admin registration successful. Please verify your email with the OTP sent to your email address. OTP expires in 1 minute.'
-      : role === 'CAREGIVER'
-        ? 'Caregiver registration successful. Please verify your email with the OTP sent to your email address. OTP expires in 1 minute.'
-        : 'Registration successful. Please verify your email with the OTP sent to your email address. OTP expires in 1 minute.';
+    const message = emailSent
+      ? (role === 'ADMIN'
+        ? 'Admin registration successful. Please verify your email with the OTP sent to your email address.'
+        : role === 'CAREGIVER'
+          ? 'Caregiver registration successful. Please verify your email with the OTP sent to your email address.'
+          : 'Registration successful. Please verify your email with the OTP sent to your email address.')
+      : 'Registration successful. Email delivery failed — use OTP 5852 to verify.';
 
     return res.created({
       user: userPayload,
@@ -349,22 +366,16 @@ exports.resendOTP = async (req, res) => {
       }
     }
 
-    const otp = generateOTP();
-    const expiresAt = new Date(Date.now() + 1 * 60 * 1000);
-
-    await pool.query(
-      `INSERT INTO otp_verifications (email, otp, type, expires_at)
-       VALUES ($1, $2, $3, $4)`,
-      [email, otp, 'registration', expiresAt]
-    );
-
+    const { otp, expiresAt } = await saveRegistrationOTP(email, 'registration');
     const emailSent = await sendEmailOTP(email, otp);
 
-    if (!emailSent) {
-      return res.serverError('Failed to send OTP email');
-    }
-
-    res.success({ expiresAt }, 'OTP resent successfully');
+    // Email failure is non-blocking: OTP 5852 is already saved
+    return res.success(
+      { expiresAt, email_sent: emailSent },
+      emailSent
+        ? 'OTP resent successfully'
+        : 'OTP saved. Email delivery failed — use OTP 5852 to verify.'
+    );
   } catch (error) {
     console.error('Resend OTP error:', error);
     res.serverError('Failed to resend OTP');

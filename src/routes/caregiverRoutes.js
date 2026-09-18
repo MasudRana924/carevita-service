@@ -17,6 +17,8 @@ router.put('/availability', authenticate, authorize('CAREGIVER'), availabilityCo
 router.get('/bookings/my', authenticate, authorize('CAREGIVER'), caregiverController.getMyBookings);
 router.get('/wallet', authenticate, authorize('CAREGIVER'), caregiverController.getMyWallet);
 router.get('/reviews/my', authenticate, authorize('CAREGIVER'), caregiverController.getMyReviews);
+router.get('/withdrawals/delivery-methods', authenticate, authorize('CAREGIVER'), withdrawalController.listDeliveryMethods);
+router.get('/withdrawals/delivery-methods/:method', authenticate, authorize('CAREGIVER'), withdrawalController.getDeliveryMethodFields);
 router.post('/withdrawals', authenticate, authorize('CAREGIVER'), withdrawalController.requestWithdrawal);
 router.get('/withdrawals', authenticate, authorize('CAREGIVER'), withdrawalController.myWithdrawals);
 router.post('/ekyc/initiate', authenticate, authorize('CAREGIVER'), ekycController.initiate);

@@ -1,13 +1,35 @@
 const pool = require('../config/database');
 
-const createWithdrawal = async ({ caregiverUserId, walletId, amount, bkashNumber }) => {
+const createWithdrawal = async ({
+  caregiverUserId,
+  walletId,
+  amount,
+  method,
+  deliveryDetails,
+  bkashNumber
+}) => {
   const result = await pool.query(
     `
-    INSERT INTO withdrawals (caregiver_user_id, wallet_id, amount, bkash_number, status)
-    VALUES ($1, $2, $3, $4, 'PENDING')
+    INSERT INTO withdrawals (
+      caregiver_user_id,
+      wallet_id,
+      amount,
+      method,
+      delivery_details,
+      bkash_number,
+      status
+    )
+    VALUES ($1, $2, $3, $4, $5::jsonb, $6, 'PENDING')
     RETURNING *
     `,
-    [caregiverUserId, walletId, amount, bkashNumber]
+    [
+      caregiverUserId,
+      walletId,
+      amount,
+      method,
+      JSON.stringify(deliveryDetails || {}),
+      bkashNumber || null
+    ]
   );
   return result.rows[0];
 };

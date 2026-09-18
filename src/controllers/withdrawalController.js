@@ -4,17 +4,76 @@ const { parsePagination } = require('../utils/pagination');
 const { MIN_WITHDRAWAL_AMOUNT } = require('../config/platform');
 const { writeAudit } = require('../utils/audit');
 const { notifyUser } = require('../services/pushNotificationService');
+const {
+  listDeliveryMethods,
+  getDeliveryMethodFields,
+  validateDeliveryDetails
+} = require('../constants/withdrawalDelivery');
+
+const payoutDestinationLabel = (withdrawal) => {
+  const details = withdrawal.delivery_details || {};
+  if (withdrawal.method === 'BANK') {
+    return `${details.bank_name || 'Bank'} · ${details.account_number || ''}`.trim();
+  }
+  if (withdrawal.method === 'MFS') {
+    const provider = details.mfs_provider || 'MFS';
+    return `${provider} · ${details.wallet_number || withdrawal.bkash_number || ''}`.trim();
+  }
+  return withdrawal.bkash_number || 'wallet';
+};
+
+exports.listDeliveryMethods = async (req, res) => {
+  try {
+    return res.success(
+      { methods: listDeliveryMethods() },
+      'Delivery methods fetched successfully'
+    );
+  } catch (error) {
+    console.error('List delivery methods error:', error);
+    return res.serverError('Failed to fetch delivery methods');
+  }
+};
+
+exports.getDeliveryMethodFields = async (req, res) => {
+  try {
+    const method = req.params.method || req.query.method;
+    const config = getDeliveryMethodFields(method);
+    if (!config) {
+      return res.badRequest('Invalid delivery method. Use MFS or BANK.');
+    }
+    return res.success(config, 'Delivery method fields fetched successfully');
+  } catch (error) {
+    console.error('Get delivery fields error:', error);
+    return res.serverError('Failed to fetch delivery fields');
+  }
+};
 
 exports.requestWithdrawal = async (req, res) => {
   try {
     const amount = Number(req.body.amount);
-    const bkashNumber = String(req.body.bkash_number || '').trim();
+    const method = String(req.body.method || '').trim().toUpperCase();
+    // Support both nested delivery_details and flat body fields
+    const rawDetails = req.body.delivery_details && typeof req.body.delivery_details === 'object'
+      ? req.body.delivery_details
+      : {
+          account_name: req.body.account_name,
+          wallet_number: req.body.wallet_number || req.body.bkash_number,
+          mfs_provider: req.body.mfs_provider,
+          bank_name: req.body.bank_name,
+          branch_name: req.body.branch_name,
+          account_number: req.body.account_number,
+          routing_number: req.body.routing_number,
+          account_holder_name: req.body.account_holder_name
+        };
 
     if (!(amount > 0)) return res.badRequest('amount must be greater than 0');
     if (amount < MIN_WITHDRAWAL_AMOUNT) {
       return res.badRequest(`Minimum withdrawal is BDT ${MIN_WITHDRAWAL_AMOUNT}`);
     }
-    if (!bkashNumber) return res.badRequest('bkash_number is required');
+    if (!method) return res.badRequest('method is required (MFS or BANK)');
+
+    const validated = validateDeliveryDetails(method, rawDetails);
+    if (!validated.ok) return res.badRequest(validated.error);
 
     if (await Withdrawal.hasPending(req.user.id)) {
       return res.conflict('You already have a pending withdrawal request');
@@ -28,10 +87,16 @@ exports.requestWithdrawal = async (req, res) => {
       return res.error('Insufficient wallet balance', [], 400, 'BAD_REQUEST');
     }
 
+    // Keep bkash_number populated for MFS (admin/legacy display)
+    const bkashNumber =
+      validated.method === 'MFS' ? validated.deliveryDetails.wallet_number : null;
+
     const withdrawal = await Withdrawal.createWithdrawal({
       caregiverUserId: req.user.id,
       walletId: wallet.id,
       amount,
+      method: validated.method,
+      deliveryDetails: validated.deliveryDetails,
       bkashNumber
     });
 
@@ -79,6 +144,7 @@ exports.adminApproveWithdrawal = async (req, res) => {
       return res.error('Only pending withdrawals can be approved');
     }
 
+    const destination = payoutDestinationLabel(withdrawal);
     const pool = require('../config/database');
     const dbClient = await pool.connect();
     let updated;
@@ -89,8 +155,13 @@ exports.adminApproveWithdrawal = async (req, res) => {
         userId: withdrawal.caregiver_user_id,
         amount: Number(withdrawal.amount),
         category: 'WITHDRAWAL',
-        description: `Withdrawal ${withdrawal.id} to ${withdrawal.bkash_number}`,
-        meta: { withdrawal_id: withdrawal.id, bkash_number: withdrawal.bkash_number }
+        description: `Withdrawal ${withdrawal.id} to ${destination}`,
+        meta: {
+          withdrawal_id: withdrawal.id,
+          method: withdrawal.method,
+          delivery_details: withdrawal.delivery_details,
+          bkash_number: withdrawal.bkash_number
+        }
       });
       const result = await dbClient.query(
         `
@@ -103,7 +174,7 @@ exports.adminApproveWithdrawal = async (req, res) => {
         WHERE id = $3
         RETURNING *
         `,
-        [req.body.note || 'Paid to bKash wallet', req.user.id, withdrawal.id]
+        [req.body.note || `Paid via ${withdrawal.method || 'MFS'} to ${destination}`, req.user.id, withdrawal.id]
       );
       updated = result.rows[0];
       await dbClient.query('COMMIT');
@@ -119,14 +190,14 @@ exports.adminApproveWithdrawal = async (req, res) => {
       action: 'WITHDRAWAL_APPROVED',
       entityType: 'withdrawal',
       entityId: withdrawal.id,
-      meta: { amount: withdrawal.amount }
+      meta: { amount: withdrawal.amount, method: withdrawal.method }
     });
 
     try {
       await notifyUser({
         userId: withdrawal.caregiver_user_id,
         title: 'Withdrawal completed',
-        body: `BDT ${withdrawal.amount} was sent to ${withdrawal.bkash_number}.`,
+        body: `BDT ${withdrawal.amount} was sent to ${destination}.`,
         type: 'WITHDRAWAL_UPDATED',
         referenceId: withdrawal.id,
         referenceType: 'withdrawal'
