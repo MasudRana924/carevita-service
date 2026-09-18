@@ -158,7 +158,9 @@ const searchCaregivers = async (filters = {}) => {
   const listQuery = `
     SELECT cp.*, u.name, u.email, u.phone, u.profile_photo
     ${whereSql}
-    ORDER BY rating DESC
+    ORDER BY rating DESC NULLS LAST,
+             completed_bookings DESC NULLS LAST,
+             cp.created_at ASC
     LIMIT $${paramCount + 1} OFFSET $${paramCount + 2}
   `;
   const countQuery = `SELECT COUNT(*)::int AS count ${whereSql}`;
