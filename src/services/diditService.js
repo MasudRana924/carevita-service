@@ -125,6 +125,69 @@ const getDecision = async (sessionId) => {
   return response.data;
 };
 
+/**
+ * Manually set Didit session to Approved / Declined / Resubmitted.
+ * Eligible current statuses include In Review, Approved, Declined, etc.
+ */
+const updateSessionStatus = async (sessionId, { newStatus, comment } = {}) => {
+  if (!diditConfig.apiKey) {
+    throw diditError('Didit eKYC is not configured. Set DIDIT_API_KEY.', 503);
+  }
+  if (!sessionId) {
+    throw diditError('session_id is required', 400);
+  }
+  if (!newStatus) {
+    throw diditError('new_status is required', 400);
+  }
+
+  const body = { new_status: newStatus };
+  if (comment) body.comment = String(comment).slice(0, 1000);
+
+  const response = await axios.patch(
+    `${diditConfig.apiUrl}/v3/session/${sessionId}/update-status/`,
+    body,
+    {
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        'x-api-key': diditConfig.apiKey
+      },
+      timeout: 30000,
+      validateStatus: () => true
+    }
+  );
+
+  if (response.status < 200 || response.status >= 300) {
+    const data = response.data;
+    const fieldError = data && typeof data === 'object' && !Array.isArray(data)
+      ? Object.entries(data)
+          .map(([field, value]) => {
+            const text = Array.isArray(value) ? value.join(', ') : (typeof value === 'string' ? value : '');
+            return text ? `${field}: ${text}` : '';
+          })
+          .filter(Boolean)
+          .join('; ')
+      : '';
+    const message =
+      fieldError ||
+      (data && (data.detail || data.message)) ||
+      'Didit update-status failed';
+    console.error('Didit update-status failed:', {
+      status: response.status,
+      sessionId,
+      newStatus,
+      data
+    });
+    throw diditError(
+      message,
+      response.status >= 400 && response.status < 500 ? response.status : 502,
+      data
+    );
+  }
+
+  return response.data;
+};
+
 const shortenFloats = (data) => {
   if (Array.isArray(data)) return data.map(shortenFloats);
   if (data !== null && typeof data === 'object') {
@@ -226,5 +289,6 @@ module.exports = {
   isConfigured,
   createSession,
   getDecision,
+  updateSessionStatus,
   verifyWebhook
 };

@@ -1,6 +1,7 @@
 const { findById, updateEkyc, findByEkycReference } = require('../models/User');
 const {
   getCaregiverProfileByUserId,
+  getCaregiverProfileById,
   updateCaregiverEkyc
 } = require('../models/CaregiverProfile');
 const EkycSession = require('../models/EkycSession');
@@ -336,6 +337,172 @@ const syncProfileFromUser = async (userId) => {
   });
 };
 
+const REVIEWABLE_STATUSES = new Set([
+  'In Review',
+  'Approved',
+  'Declined',
+  'Kyc Expired',
+  'Abandoned',
+  'Resubmitted'
+]);
+
+const resolveCaregiverContext = async (id) => {
+  let profile = await getCaregiverProfileById(id);
+  if (!profile) profile = await getCaregiverProfileByUserId(id);
+  if (!profile) {
+    const error = new Error('Caregiver not found');
+    error.statusCode = 404;
+    throw error;
+  }
+
+  const user = await findById(profile.user_id);
+  if (!user) {
+    const error = new Error('Caregiver user not found');
+    error.statusCode = 404;
+    throw error;
+  }
+
+  const session = await EkycSession.findLatestByUserId(user.id);
+  const sessionId = session?.session_id || user.ekyc_reference_id || profile.ekyc_reference_id || null;
+
+  return { user, profile, session, sessionId };
+};
+
+const getAdminEkycDetails = async (id) => {
+  const { user, profile, session, sessionId } = await resolveCaregiverContext(id);
+  let decision = null;
+
+  if (sessionId) {
+    try {
+      decision = await diditService.getDecision(sessionId);
+      if (decision?.status && decision.status !== user.ekyc_session_status) {
+        await applyDiditStatus({
+          userId: user.id,
+          sessionId,
+          status: decision.status
+        });
+      }
+    } catch (error) {
+      console.error('Admin eKYC decision refresh failed:', error.message);
+    }
+  }
+
+  const freshUser = await findById(user.id);
+  const freshSession = sessionId
+    ? (await EkycSession.findBySessionId(sessionId)) || session
+    : session;
+
+  return {
+    caregiver_id: profile.id,
+    user_id: freshUser.id,
+    name: freshUser.name,
+    email: freshUser.email,
+    ...presentSession(freshUser, freshSession),
+    can_approve: freshUser.ekyc_session_status === 'In Review' && Boolean(sessionId),
+    can_decline: ['In Review', 'Approved'].includes(freshUser.ekyc_session_status) && Boolean(sessionId),
+    decision: decision
+      ? {
+          status: decision.status,
+          session_id: decision.session_id,
+          features: decision.features || null,
+          id_verifications: decision.id_verifications || [],
+          liveness_checks: decision.liveness_checks || [],
+          face_matches: decision.face_matches || [],
+          reviews: decision.reviews || []
+        }
+      : null
+  };
+};
+
+const adminReviewEkyc = async ({
+  id,
+  newStatus,
+  comment = null,
+  actorId = null
+}) => {
+  if (![diditService.APPROVED_STATUS, 'Declined'].includes(newStatus)) {
+    const error = new Error('new_status must be Approved or Declined');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const { user, profile, sessionId } = await resolveCaregiverContext(id);
+  if (!sessionId) {
+    const error = new Error('No Didit eKYC session found for this caregiver');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  let currentStatus = user.ekyc_session_status;
+  try {
+    const decision = await diditService.getDecision(sessionId);
+    if (decision?.status) currentStatus = decision.status;
+  } catch (error) {
+    console.error('Admin eKYC pre-check decision failed:', error.message);
+  }
+
+  if (!REVIEWABLE_STATUSES.has(currentStatus)) {
+    const error = new Error(
+      `Session status "${currentStatus || 'unknown'}" cannot be manually reviewed yet`
+    );
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (currentStatus === newStatus) {
+    const error = new Error(`Session is already ${newStatus}`);
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (newStatus === diditService.APPROVED_STATUS && currentStatus !== 'In Review' && currentStatus !== 'Declined') {
+    const error = new Error(`Only In Review (or Declined) sessions can be approved. Current: ${currentStatus}`);
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const diditResult = await diditService.updateSessionStatus(sessionId, {
+    newStatus,
+    comment: comment || (newStatus === diditService.APPROVED_STATUS
+      ? 'Approved by CareMate admin'
+      : 'Declined by CareMate admin')
+  });
+
+  const finalStatus = diditResult?.status || newStatus;
+
+  const updatedUser = await applyDiditStatus({
+    userId: user.id,
+    sessionId,
+    status: finalStatus,
+    actorId
+  });
+
+  await writeAudit({
+    actorId,
+    action: newStatus === diditService.APPROVED_STATUS ? 'ADMIN_EKYC_APPROVED' : 'ADMIN_EKYC_DECLINED',
+    entityType: 'caregiver',
+    entityId: profile.id,
+    meta: {
+      user_id: user.id,
+      session_id: sessionId,
+      previous_status: currentStatus,
+      new_status: finalStatus,
+      comment: comment || null
+    }
+  });
+
+  return {
+    caregiver_id: profile.id,
+    user_id: user.id,
+    session_id: sessionId,
+    previous_status: currentStatus,
+    status: finalStatus,
+    ekyc_status: Boolean(updatedUser?.ekyc_status),
+    ekyc_verified_at: updatedUser?.ekyc_verified_at || null,
+    comment: comment || null
+  };
+};
+
 module.exports = {
   presentSession,
   applyDiditStatus,
@@ -343,5 +510,7 @@ module.exports = {
   getStatusForCaregiver,
   handleWebhook,
   syncProfileFromUser,
-  notifyEkycStatus
+  notifyEkycStatus,
+  getAdminEkycDetails,
+  adminReviewEkyc
 };

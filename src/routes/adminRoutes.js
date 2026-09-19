@@ -18,6 +18,9 @@ router.put('/users/:id/unblock', ...admin, adminController.unblockUser);
 router.put('/users/:id/status', ...admin, adminController.updateUserStatus);
 
 router.get('/caregivers', ...admin, adminController.getAllCaregivers);
+router.get('/caregivers/:id/ekyc', ...admin, adminController.getCaregiverEkyc);
+router.post('/caregivers/:id/ekyc/approve', ...admin, adminController.approveCaregiverEkyc);
+router.post('/caregivers/:id/ekyc/decline', ...admin, adminController.declineCaregiverEkyc);
 router.put('/caregivers/:id/block', ...admin, adminController.blockCaregiver);
 router.put('/caregivers/:id/unblock', ...admin, adminController.unblockCaregiver);
 

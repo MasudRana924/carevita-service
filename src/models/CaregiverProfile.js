@@ -94,7 +94,7 @@ const updateVerificationStatus = async (id, status, note) => {
 const buildCaregiverSearch = (filters = {}) => {
   const {
     service_area, name, gender, verification_status, min_rating,
-    district, thana
+    district, thana, ekyc_session_status
   } = filters;
 
   let whereSql = `
@@ -141,6 +141,12 @@ const buildCaregiverSearch = (filters = {}) => {
     values.push(verification_status);
   }
 
+  if (ekyc_session_status) {
+    paramCount++;
+    whereSql += ` AND COALESCE(u.ekyc_session_status, cp.ekyc_session_status) = $${paramCount}`;
+    values.push(ekyc_session_status);
+  }
+
   if (min_rating) {
     paramCount++;
     whereSql += ` AND rating >= $${paramCount}`;
@@ -156,7 +162,12 @@ const searchCaregivers = async (filters = {}) => {
   const { whereSql, values, paramCount } = buildCaregiverSearch(filters);
 
   const listQuery = `
-    SELECT cp.*, u.name, u.email, u.phone, u.profile_photo
+    SELECT cp.*,
+           u.name, u.email, u.phone, u.profile_photo AS user_profile_photo,
+           u.ekyc_status AS user_ekyc_status,
+           u.ekyc_session_status AS user_ekyc_session_status,
+           u.ekyc_verified_at AS user_ekyc_verified_at,
+           u.ekyc_reference_id AS user_ekyc_reference_id
     ${whereSql}
     ORDER BY rating DESC NULLS LAST,
              completed_bookings DESC NULLS LAST,

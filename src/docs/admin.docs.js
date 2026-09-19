@@ -64,9 +64,78 @@
  *   get:
  *     tags: [Admin]
  *     summary: List caregivers
+ *     parameters:
+ *       - in: query
+ *         name: verification_status
+ *         schema: { type: string }
+ *       - in: query
+ *         name: ekyc_session_status
+ *         schema: { type: string, example: In Review }
+ *         description: Filter by Didit session status (e.g. In Review, Approved)
+ *       - in: query
+ *         name: page
+ *         schema: { type: integer, default: 1 }
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer, default: 20 }
  *     responses:
  *       200:
  *         description: Caregivers
+ *
+ * /admin/caregivers/{id}/ekyc:
+ *   get:
+ *     tags: [Admin]
+ *     summary: Get caregiver Didit eKYC details
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *         description: Caregiver profile id or user id
+ *     responses:
+ *       200:
+ *         description: eKYC status + Didit decision summary
+ *
+ * /admin/caregivers/{id}/ekyc/approve:
+ *   post:
+ *     tags: [Admin]
+ *     summary: Approve caregiver Didit eKYC (In Review to Approved)
+ *     description: Calls Didit update-status so admin does not need the Didit console.
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               comment: { type: string, example: Face match reviewed and accepted }
+ *     responses:
+ *       200:
+ *         description: Approved on Didit and local DB updated
+ *
+ * /admin/caregivers/{id}/ekyc/decline:
+ *   post:
+ *     tags: [Admin]
+ *     summary: Decline caregiver Didit eKYC
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               comment: { type: string, example: Document mismatch }
+ *     responses:
+ *       200:
+ *         description: Declined on Didit and local DB updated
  *
  * /admin/caregivers/{id}/block:
  *   put:

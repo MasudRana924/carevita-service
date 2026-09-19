@@ -14,6 +14,11 @@ const {
   findById: findHospitalById,
   updateHospital
 } = require('../models/Hospital');
+const {
+  getAdminEkycDetails,
+  adminReviewEkyc
+} = require('../services/ekycService');
+const diditService = require('../services/diditService');
 
 exports.getAdminProfile = async (req, res) => {
   try {
@@ -226,10 +231,11 @@ exports.updateUserStatus = async (req, res) => {
 
 exports.getAllCaregivers = async (req, res) => {
   try {
-    const { verification_status } = req.query;
+    const { verification_status, ekyc_session_status } = req.query;
     const { page, limit } = parsePagination(req.query);
     const { items, total } = await searchCaregivers({
       verification_status,
+      ekyc_session_status,
       page,
       limit
     });
@@ -298,6 +304,66 @@ exports.unblockCaregiver = async (req, res) => {
   } catch (error) {
     console.error('Unblock caregiver error:', error);
     res.serverError('Failed to unblock caregiver');
+  }
+};
+
+exports.getCaregiverEkyc = async (req, res) => {
+  try {
+    const data = await getAdminEkycDetails(req.params.id);
+    return res.success(data, 'Caregiver eKYC details fetched');
+  } catch (error) {
+    console.error('Get caregiver eKYC error:', error);
+    if (error.statusCode === 404) return res.notFound(error.message);
+    if (error.statusCode && error.statusCode < 500) {
+      return res.error(error.message, [], error.statusCode);
+    }
+    return res.serverError('Failed to fetch caregiver eKYC');
+  }
+};
+
+exports.approveCaregiverEkyc = async (req, res) => {
+  try {
+    const comment = req.body?.comment || req.body?.note || null;
+    const data = await adminReviewEkyc({
+      id: req.params.id,
+      newStatus: diditService.APPROVED_STATUS,
+      comment,
+      actorId: req.user.id
+    });
+    return res.success(data, 'Caregiver eKYC approved on Didit');
+  } catch (error) {
+    console.error('Approve caregiver eKYC error:', error);
+    if (error.statusCode === 404) return res.notFound(error.message);
+    if (error.statusCode === 503) {
+      return res.error(error.message, [], 503, 'INTERNAL_ERROR');
+    }
+    if (error.statusCode && error.statusCode < 500) {
+      return res.error(error.message, [], error.statusCode);
+    }
+    return res.serverError('Failed to approve caregiver eKYC');
+  }
+};
+
+exports.declineCaregiverEkyc = async (req, res) => {
+  try {
+    const comment = req.body?.comment || req.body?.note || req.body?.reason || null;
+    const data = await adminReviewEkyc({
+      id: req.params.id,
+      newStatus: 'Declined',
+      comment,
+      actorId: req.user.id
+    });
+    return res.success(data, 'Caregiver eKYC declined on Didit');
+  } catch (error) {
+    console.error('Decline caregiver eKYC error:', error);
+    if (error.statusCode === 404) return res.notFound(error.message);
+    if (error.statusCode === 503) {
+      return res.error(error.message, [], 503, 'INTERNAL_ERROR');
+    }
+    if (error.statusCode && error.statusCode < 500) {
+      return res.error(error.message, [], error.statusCode);
+    }
+    return res.serverError('Failed to decline caregiver eKYC');
   }
 };
 
