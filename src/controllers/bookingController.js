@@ -1,768 +1,156 @@
+const asyncHandler = require('../utils/asyncHandler');
 const {
-  createBooking,
   findById,
   findByUserId,
   countByUserId,
-  updateStatus,
-  cancel,
-  startService,
-  complete,
-  settleEarning,
-  addStatusHistory,
-  getStatusHistory,
-  addRejection
+  getStatusHistory
 } = require('../models/Booking');
-const { findByUserIdAndId } = require('../models/FamilyMember');
-const {
-  getCaregiverProfileByUserId,
-  getCaregiverProfileById,
-  updateRating,
-  incrementCompletedBookings
-} = require('../models/CaregiverProfile');
 const Review = require('../models/Review');
 const Dispute = require('../models/Dispute');
-const { notifyUser } = require('../services/pushNotificationService');
-const {
-  canUserPayBooking,
-  payableAmount
-} = require('../services/paymentEligibility');
-const { bkashConfig } = require('../services/bkashService');
-const {
-  journeyFlags,
-  presentBooking,
-  STATUSES,
-  assertTransition
-} = require('../services/bookingJourney');
-const { getCaregiverEarningForBooking } = require('../services/walletService');
+const { journeyFlags } = require('../services/bookingJourney');
 const { parsePagination } = require('../utils/pagination');
-const { PLATFORM_FEE_RATE } = require('../config/platform');
-const { assertCaregiverFree, reassignOrSearch } = require('../services/bookingAssignment');
-const { evaluateCancellation } = require('../services/cancellationPolicy');
-const { processBookingRefund } = require('../services/refundService');
-const { writeAudit } = require('../utils/audit');
+const bookingService = require('../services/bookingService');
 
-const resolveCaregiverProfileId = async (userId) => {
-  const profile = await getCaregiverProfileByUserId(userId);
-  return profile ? profile.id : null;
-};
-
-const isAssignedCaregiver = async (booking, userId) => {
-  if (booking.provider_type !== 'CAREGIVER') return false;
-  const providerProfileId = await resolveCaregiverProfileId(userId);
-  return !!providerProfileId && booking.provider_id === providerProfileId;
-};
-
-const withJourney = async (booking, userId) => {
-  const asProvider = await isAssignedCaregiver(booking, userId);
-  const review = await Review.findByBookingId(booking.id);
-  const flags = journeyFlags(booking, { userId, asProvider, review });
-  const can_pay = canUserPayBooking(booking, userId);
-  const cancellation = evaluateCancellation(booking);
-  return {
-    ...presentBooking(booking, { asProvider }),
-    ...flags,
-    can_pay,
-    pay_amount: can_pay ? payableAmount(booking) : 0,
-    cancellation_policy: cancellation,
-    bkash_script: bkashConfig.script
-  };
-};
-
-exports.createBooking = async (req, res) => {
-  try {
-    const {
-      family_member_id,
-      provider_id,
-      hospital_id,
-      booking_date,
-      start_time,
-      duration_hours,
-      patient_requirements,
-      notes,
-      service_type = 'HOSPITAL_ASSISTANCE'
-    } = req.body;
-
-    if (!family_member_id || !provider_id || !booking_date || !start_time || !duration_hours) {
-      return res.error('family_member_id, provider_id, booking_date, start_time, and duration_hours are required');
-    }
-
-    const familyMember = await findByUserIdAndId(req.user.id, family_member_id);
-    if (!familyMember) {
-      return res.notFound('Family member not found');
-    }
-
-    const caregiver = await getCaregiverProfileById(provider_id);
-    if (!caregiver) {
-      return res.notFound('Caregiver not found');
-    }
-
-    const end_time = new Date(`${booking_date}T${start_time}`);
-    end_time.setHours(end_time.getHours() + parseInt(duration_hours, 10));
-    const endTimeStr = end_time.toTimeString().slice(0, 5);
-
-    await assertCaregiverFree(caregiver, {
-      booking_date,
-      start_time,
-      end_time: endTimeStr
-    });
-
-    const basePrice = service_type === 'HOSPITAL_ASSISTANCE' ? 300 : 500;
-    const hourlyRate = Number(caregiver.hourly_rate) || 250;
-    const service_charge = basePrice + hourlyRate * parseInt(duration_hours, 10);
-    const platform_fee = Number((service_charge * PLATFORM_FEE_RATE).toFixed(2));
-    const total_amount = service_charge + platform_fee;
-    const advance_percentage = 50;
-    const advance_amount = total_amount * (advance_percentage / 100);
-    const remaining_amount = total_amount - advance_amount;
-
-    const booking = await createBooking({
-      user_id: req.user.id,
-      family_member_id,
-      service_type,
-      provider_type: 'CAREGIVER',
-      provider_id,
-      hospital_id,
-      booking_date,
-      start_time,
-      end_time: endTimeStr,
-      duration_hours,
-      patient_requirements,
-      notes,
-      service_charge,
-      platform_fee,
-      discount: 0,
-      total_amount,
-      advance_percentage,
-      advance_amount,
-      remaining_amount
-    });
-
-    // Ready for caregiver accept
-    await updateStatus(booking.id, 'PROVIDER_ASSIGNED');
-    booking.status = 'PROVIDER_ASSIGNED';
-
-    // Push + inbox for caregiver
-    try {
-      await notifyUser({
-        userId: caregiver.user_id,
-        title: 'New Booking Request',
-        body: `You have a new booking ${booking.booking_number}. Tap to view details.`,
-        type: 'BOOKING_CREATED',
-        bookingId: booking.id,
-        referenceId: booking.id,
-        referenceType: 'booking',
-        extraData: {
-          booking_number: booking.booking_number,
-          screen: 'inbox'
-        }
-      });
-    } catch (notifyErr) {
-      console.error('Notify caregiver on booking create failed:', notifyErr.message);
-    }
-
-    res.created(booking, 'Booking created successfully');
-  } catch (error) {
-    console.error('Create booking error:', error);
-    if (error.statusCode) {
-      return res.error(error.message, [], error.statusCode, error.code);
-    }
-    res.serverError('Failed to create booking');
+const mapServiceError = (res, error, fallback) => {
+  if (error.statusCode) {
+    return res.error(error.message, [], error.statusCode, error.code);
   }
+  console.error(fallback, error);
+  return res.serverError(fallback);
 };
 
-exports.getBookings = async (req, res) => {
+exports.createBooking = asyncHandler(async (req, res) => {
   try {
-    const { page, limit, offset } = parsePagination(req.query);
-    const { status } = req.query;
-
-    const [bookings, total] = await Promise.all([
-      findByUserId(req.user.id, { status, limit, offset }),
-      countByUserId(req.user.id, { status })
-    ]);
-
-    const data = await Promise.all(
-      bookings.map(async (booking) => {
-        const review = await Review.findByBookingId(booking.id);
-        return {
-          ...booking,
-          ...journeyFlags(booking, {
-            userId: req.user.id,
-            asProvider: false,
-            review
-          })
-        };
-      })
-    );
-
-    return res.paginated(data, { page, limit, total }, 'Bookings fetched successfully');
+    const booking = await bookingService.createUserBooking(req.user.id, req.body);
+    return res.created(booking, 'Booking created successfully');
   } catch (error) {
-    console.error('Get bookings error:', error);
-    res.serverError('Failed to fetch bookings');
+    return mapServiceError(res, error, 'Failed to create booking');
   }
-};
+});
 
-exports.getBooking = async (req, res) => {
+exports.getBookings = asyncHandler(async (req, res) => {
+  const { page, limit, offset } = parsePagination(req.query);
+  const { status } = req.query;
+
+  const [bookings, total] = await Promise.all([
+    findByUserId(req.user.id, { status, limit, offset }),
+    countByUserId(req.user.id, { status })
+  ]);
+
+  const data = await Promise.all(
+    bookings.map(async (booking) => {
+      const review = await Review.findByBookingId(booking.id);
+      return {
+        ...booking,
+        ...journeyFlags(booking, {
+          userId: req.user.id,
+          asProvider: false,
+          review
+        }),
+        offer_expires_at: booking.offer_expires_at || null
+      };
+    })
+  );
+
+  return res.paginated(data, { page, limit, total }, 'Bookings fetched successfully');
+});
+
+exports.getBooking = asyncHandler(async (req, res) => {
+  const booking = await findById(req.params.id);
+  if (!booking) return res.notFound('Booking not found');
+
+  const asProvider = await bookingService.isAssignedCaregiver(booking, req.user.id);
+  if (booking.user_id !== req.user.id && !asProvider && req.user.role !== 'ADMIN') {
+    return res.forbidden('Access denied');
+  }
+
+  const history = await getStatusHistory(req.params.id);
+  const payload = await bookingService.withJourney(booking, req.user.id);
+  return res.success({ ...payload, history });
+});
+
+exports.acceptBooking = asyncHandler(async (req, res) => {
+  try {
+    const updated = await bookingService.acceptBooking(req.params.id, req.user.id);
+    return res.success(updated, 'Booking accepted successfully');
+  } catch (error) {
+    return mapServiceError(res, error, 'Failed to accept booking');
+  }
+});
+
+exports.rejectBooking = asyncHandler(async (req, res) => {
+  try {
+    const result = await bookingService.rejectBooking(req.params.id, req.user.id, req.body.reason);
+    return res.success(result.booking, result.message);
+  } catch (error) {
+    return mapServiceError(res, error, 'Failed to reject booking');
+  }
+});
+
+exports.cancelBooking = asyncHandler(async (req, res) => {
   try {
     const booking = await findById(req.params.id);
     if (!booking) return res.notFound('Booking not found');
-
-    const asProvider = await isAssignedCaregiver(booking, req.user.id);
-    if (booking.user_id !== req.user.id && !asProvider && req.user.role !== 'ADMIN') {
-      return res.forbidden('Access denied');
-    }
-
-    const history = await getStatusHistory(req.params.id);
-    const payload = await withJourney(booking, req.user.id);
-    res.success({
-      ...payload,
-      history
-    });
-  } catch (error) {
-    console.error('Get booking error:', error);
-    res.serverError('Failed to fetch booking');
-  }
-};
-
-exports.acceptBooking = async (req, res) => {
-  try {
-    const booking = await findById(req.params.id);
-    if (!booking) return res.notFound('Booking not found');
-
-    if (!(await isAssignedCaregiver(booking, req.user.id))) {
-      return res.forbidden('Access denied — this booking is not assigned to you');
-    }
-
-    if (!['SEARCHING_PROVIDER', 'PROVIDER_ASSIGNED'].includes(booking.status)) {
-      return res.error('Booking cannot be accepted in current status');
-    }
-
-    const caregiver = await getCaregiverProfileByUserId(req.user.id);
-    await assertCaregiverFree(caregiver, booking, { excludeBookingId: booking.id });
-
-    assertTransition(booking.status, STATUSES.PROVIDER_ACCEPTED);
-    const oldStatus = booking.status;
-    const updated = await updateStatus(booking.id, STATUSES.PROVIDER_ACCEPTED);
-    await addStatusHistory(booking.id, oldStatus, STATUSES.PROVIDER_ACCEPTED, req.user.id, 'Provider accepted booking');
-
-    try {
-      await notifyUser({
-        userId: booking.user_id,
-        title: 'Booking Accepted',
-        body: `Your booking ${booking.booking_number} was accepted. Tap to view details.`,
-        type: 'BOOKING_ACCEPTED',
-        bookingId: booking.id,
-        referenceId: booking.id,
-        referenceType: 'booking',
-        extraData: {
-          booking_number: booking.booking_number,
-          screen: 'inbox'
-        }
-      });
-    } catch (notifyErr) {
-      console.error('Notify user on accept failed:', notifyErr.message);
-    }
-
-    res.success(updated, 'Booking accepted successfully');
-  } catch (error) {
-    console.error('Accept booking error:', error);
-    if (error.statusCode) {
-      return res.error(error.message, [], error.statusCode, error.code);
-    }
-    res.serverError('Failed to accept booking');
-  }
-};
-
-exports.rejectBooking = async (req, res) => {
-  try {
-    const { reason } = req.body;
-    const booking = await findById(req.params.id);
-    if (!booking) return res.notFound('Booking not found');
-
-    if (!(await isAssignedCaregiver(booking, req.user.id))) {
-      return res.forbidden('Access denied — this booking is not assigned to you');
-    }
-
-    if (!['SEARCHING_PROVIDER', 'PROVIDER_ASSIGNED', 'PROVIDER_ACCEPTED'].includes(booking.status)) {
-      return res.error('Booking cannot be rejected in current status');
-    }
-
-    const rejectReason = reason || 'No reason provided';
-    await addRejection(booking.id, booking.provider_id, rejectReason);
-
-    const result = await reassignOrSearch(
+    const { updated, policy, refund } = await bookingService.cancelBooking(
       booking,
-      req.user.id,
-      `Provider rejected: ${rejectReason}`
+      req.user,
+      req.body.reason
     );
-
-    if (result.next) {
-      try {
-        await notifyUser({
-          userId: result.next.user_id,
-          title: 'New Booking Request',
-          body: `You have a new booking ${booking.booking_number}. Tap to view details.`,
-          type: 'BOOKING_CREATED',
-          bookingId: booking.id,
-          referenceId: booking.id,
-          referenceType: 'booking',
-          extraData: { booking_number: booking.booking_number, screen: 'inbox' }
-        });
-      } catch (notifyErr) {
-        console.error('Notify next caregiver failed:', notifyErr.message);
-      }
-
-      try {
-        await notifyUser({
-          userId: booking.user_id,
-          title: 'Caregiver changed',
-          body: `Your booking ${booking.booking_number} was reassigned to another caregiver.`,
-          type: 'BOOKING_REASSIGNED',
-          bookingId: booking.id,
-          referenceId: booking.id,
-          referenceType: 'booking',
-          extraData: { screen: 'inbox' }
-        });
-      } catch (notifyErr) {
-        console.error('Notify user on reassign failed:', notifyErr.message);
-      }
-
-      return res.success(
-        { ...result.booking, reassigned: true, searching: false },
-        'Booking reassigned to another caregiver'
-      );
-    }
-
-    try {
-      await notifyUser({
-        userId: booking.user_id,
-        title: 'Looking for another caregiver',
-        body: `The previous caregiver declined ${booking.booking_number}. We are searching for another caregiver.`,
-        type: 'BOOKING_REJECTED',
-        bookingId: booking.id,
-        referenceId: booking.id,
-        referenceType: 'booking',
-        extraData: { reason: rejectReason, screen: 'inbox' }
-      });
-    } catch (notifyErr) {
-      console.error('Notify user on search failed:', notifyErr.message);
-    }
-
-    return res.success(
-      { ...result.booking, reassigned: false, searching: true },
-      'Caregiver declined. Searching for another caregiver'
-    );
-  } catch (error) {
-    console.error('Reject booking error:', error);
-    if (error.statusCode) {
-      return res.error(error.message, [], error.statusCode, error.code);
-    }
-    res.serverError('Failed to reject booking');
-  }
-};
-
-exports.cancelBooking = async (req, res) => {
-  try {
-    const { reason } = req.body;
-    const booking = await findById(req.params.id);
-    if (!booking) return res.notFound('Booking not found');
-
-    const asProvider = await isAssignedCaregiver(booking, req.user.id);
-    const isAdmin = req.user.role === 'ADMIN';
-    if (booking.user_id !== req.user.id && !asProvider && !isAdmin) {
-      return res.forbidden('Access denied');
-    }
-
-    const policy = evaluateCancellation(booking, { byAdmin: isAdmin });
-    if (!policy.canCancel) {
-      return res.error(policy.message || 'Cannot cancel this booking');
-    }
-
-    if (asProvider && !isAdmin && ['PAYMENT_PAID', 'SERVICE_IN_PROGRESS'].includes(booking.status)) {
-      return res.error('Paid bookings can only be cancelled by the user or admin');
-    }
-
-    const cancelStatus = isAdmin
-      ? STATUSES.CANCELLED_BY_ADMIN
-      : (booking.user_id === req.user.id ? STATUSES.CANCELLED_BY_USER : STATUSES.CANCELLED_BY_PROVIDER);
-
-    assertTransition(booking.status, cancelStatus);
-    const oldStatus = booking.status;
-    const updated = await cancel(booking.id, reason, cancelStatus);
-    await addStatusHistory(booking.id, oldStatus, cancelStatus, req.user.id, reason);
-
-    let refund = { skipped: true };
-    if (policy.refundAmount > 0) {
-      try {
-        refund = await processBookingRefund(booking, {
-          refundAmount: policy.refundAmount,
-          reason: reason || 'Booking cancelled'
-        });
-      } catch (refundErr) {
-        console.error('Cancel refund failed:', refundErr.message);
-        refund = { skipped: false, failed: true, message: refundErr.message };
-      }
-    }
-
-    await writeAudit({
-      actorId: req.user.id,
-      action: 'BOOKING_CANCELLED',
-      entityType: 'booking',
-      entityId: booking.id,
-      meta: { status: cancelStatus, policy, refund_skipped: refund.skipped }
-    });
-
-    const notifyTarget = booking.user_id === req.user.id
-      ? (await getCaregiverProfileById(booking.provider_id))?.user_id
-      : booking.user_id;
-
-    if (notifyTarget) {
-      try {
-        await notifyUser({
-          userId: notifyTarget,
-          title: 'Booking Cancelled',
-          body: `Booking ${booking.booking_number} was cancelled.`,
-          type: 'BOOKING_CANCELLED',
-          bookingId: booking.id,
-          referenceId: booking.id,
-          referenceType: 'booking',
-          extraData: { screen: 'inbox' }
-        });
-      } catch (e) {
-        console.error('Cancel notify failed:', e.message);
-      }
-    }
-
-    res.success({
+    return res.success({
       ...updated,
       cancellation_policy: policy,
       refund
     }, 'Booking cancelled successfully');
   } catch (error) {
-    console.error('Cancel booking error:', error);
-    if (error.statusCode) {
-      return res.error(error.message, [], error.statusCode, error.code);
-    }
-    res.serverError('Failed to cancel booking');
+    return mapServiceError(res, error, 'Failed to cancel booking');
   }
-};
+});
 
-exports.startBooking = async (req, res) => {
+exports.startBooking = asyncHandler(async (req, res) => {
   try {
-    const booking = await findById(req.params.id);
-    if (!booking) return res.notFound('Booking not found');
-
-    if (!(await isAssignedCaregiver(booking, req.user.id))) {
-      return res.forbidden('Access denied — this booking is not assigned to you');
-    }
-
-    if (booking.status !== 'PAYMENT_PAID') {
-      return res.error('Service can only be started after the user has paid');
-    }
-
-    assertTransition(booking.status, STATUSES.SERVICE_IN_PROGRESS);
-
-    const oldStatus = booking.status;
-    await startService(booking.id);
-    await addStatusHistory(
-      booking.id,
-      oldStatus,
-      'SERVICE_IN_PROGRESS',
-      req.user.id,
-      'Caregiver started service'
-    );
-
-    try {
-      await notifyUser({
-        userId: booking.user_id,
-        title: 'Service Started',
-        body: `Caregiver started booking ${booking.booking_number}.`,
-        type: 'SERVICE_STARTED',
-        bookingId: booking.id,
-        referenceId: booking.id,
-        referenceType: 'booking',
-        extraData: {
-          booking_number: booking.booking_number,
-          status: 'SERVICE_IN_PROGRESS',
-          action: 'OPEN_BOOKING',
-          screen: 'booking_details'
-        }
-      });
-    } catch (notifyErr) {
-      console.error('Notify user on start failed:', notifyErr.message);
-    }
-
-    const payload = await withJourney(await findById(booking.id), req.user.id);
-    res.success(payload, 'Service started');
+    const payload = await bookingService.startBooking(req.params.id, req.user.id);
+    return res.success(payload, 'Service started');
   } catch (error) {
-    console.error('Start booking error:', error);
-    res.serverError('Failed to start service');
+    return mapServiceError(res, error, 'Failed to start service');
   }
-};
+});
 
-exports.completeBooking = async (req, res) => {
+exports.completeBooking = asyncHandler(async (req, res) => {
   try {
-    const booking = await findById(req.params.id);
-    if (!booking) return res.notFound('Booking not found');
-
-    if (!(await isAssignedCaregiver(booking, req.user.id))) {
-      return res.forbidden('Access denied — this booking is not assigned to you');
-    }
-
-    if (booking.status !== 'SERVICE_IN_PROGRESS') {
-      return res.error('Service can only be completed after it has started');
-    }
-
-    assertTransition(booking.status, STATUSES.SERVICE_COMPLETED);
-
-    const oldStatus = booking.status;
-    await complete(booking.id);
-    const settled = await settleEarning(booking.id);
-    await addStatusHistory(
-      booking.id,
-      oldStatus,
-      'SERVICE_COMPLETED',
-      req.user.id,
-      'Caregiver ended service'
-    );
-
-    if (booking.provider_type === 'CAREGIVER' && booking.provider_id) {
-      try {
-        await incrementCompletedBookings(booking.provider_id);
-      } catch (countErr) {
-        console.error('Increment completed bookings failed:', countErr.message);
-      }
-    }
-
-    const caregiverEarning = await getCaregiverEarningForBooking(booking.id);
-
-    try {
-      await notifyUser({
-        userId: booking.user_id,
-            title: 'Service Completed',
-            body: `Booking ${booking.booking_number} has ended. Tap to view details.`,
-        type: 'SERVICE_COMPLETED',
-        bookingId: booking.id,
-        referenceId: booking.id,
-        referenceType: 'booking',
-        extraData: {
-          booking_number: booking.booking_number,
-          status: 'SERVICE_COMPLETED',
-          action: 'OPEN_BOOKING',
-          screen: 'booking_details',
-          show_review: 'true'
-        }
-      });
-    } catch (notifyErr) {
-      console.error('Notify user on complete failed:', notifyErr.message);
-    }
-
-    const caregiver = await getCaregiverProfileById(booking.provider_id);
-    if (caregiver?.user_id) {
-      try {
-        const amountText = caregiverEarning != null ? ` BDT ${caregiverEarning}` : '';
-        await notifyUser({
-          userId: caregiver.user_id,
-          title: 'Earning settled to wallet',
-          body: `Service completed for ${booking.booking_number}.${amountText} is now in your wallet.`,
-          type: 'EARNING_SETTLED',
-          bookingId: booking.id,
-          referenceId: booking.id,
-          referenceType: 'booking',
-          extraData: {
-            booking_number: booking.booking_number,
-            status: 'SERVICE_COMPLETED',
-            payout_status: 'SETTLED_TO_WALLET',
-            caregiver_earning: String(caregiverEarning || ''),
-            action: 'OPEN_WALLET',
-            screen: 'wallet'
-          }
-        });
-      } catch (notifyErr) {
-        console.error('Notify caregiver on settle failed:', notifyErr.message);
-      }
-    }
-
-    const payload = await withJourney(await findById(booking.id), req.user.id);
-    res.success(
-      {
-        ...payload,
-        earning_settled: !!settled?.earning_settled_at,
-        caregiver_earning: caregiverEarning
-      },
-      'Service completed'
-    );
+    const payload = await bookingService.completeBooking(req.params.id, req.user.id);
+    return res.success(payload, 'Service completed');
   } catch (error) {
-    console.error('Complete booking error:', error);
-    res.serverError('Failed to complete service');
+    return mapServiceError(res, error, 'Failed to complete service');
   }
-};
+});
 
-exports.submitReview = async (req, res) => {
+exports.submitReview = asyncHandler(async (req, res) => {
   try {
-    const rating = Number(req.body.rating);
-    const comment = req.body.comment ? String(req.body.comment).trim() : null;
-    if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
-      return res.error('rating must be an integer from 1 to 5');
-    }
-
-    const booking = await findById(req.params.id);
-    if (!booking) return res.notFound('Booking not found');
-
-    if (booking.user_id !== req.user.id) {
-      return res.forbidden('Only the booking user can submit a review');
-    }
-
-    if (booking.status !== 'SERVICE_COMPLETED') {
-      return res.error('Review is allowed only after the caregiver ends the service');
-    }
-
-    if (booking.provider_type !== 'CAREGIVER' || !booking.provider_id) {
-      return res.error('This booking has no caregiver to review');
-    }
-
-    const existing = await Review.findByBookingId(booking.id);
-    if (existing) {
-      return res.error('You have already submitted a review for this booking');
-    }
-
-    let review;
-    try {
-      review = await Review.createReview({
-        booking_id: booking.id,
-        user_id: req.user.id,
-        caregiver_profile_id: booking.provider_id,
-        rating,
-        comment
-      });
-    } catch (createErr) {
-      if (createErr.code === '23505') {
-        return res.error('You have already submitted a review for this booking');
-      }
-      throw createErr;
-    }
-
-    const stats = await Review.averageRatingForCaregiver(booking.provider_id);
-    await updateRating(booking.provider_id, stats.avg_rating);
-
-    const caregiver = await getCaregiverProfileById(booking.provider_id);
-    if (caregiver?.user_id) {
-      try {
-        const stars = '★'.repeat(rating) + '☆'.repeat(5 - rating);
-        await notifyUser({
-          userId: caregiver.user_id,
-          title: 'New rating received',
-          body: `You received ${rating} star${rating === 1 ? '' : 's'} for booking ${booking.booking_number}. ${stars}`,
-          type: 'REVIEW_RECEIVED',
-          bookingId: booking.id,
-          referenceId: booking.id,
-          referenceType: 'booking',
-          extraData: {
-            booking_number: booking.booking_number,
-            rating: String(rating),
-            status: 'SERVICE_COMPLETED',
-            action: 'OPEN_BOOKING',
-            screen: 'booking_details'
-          }
-        });
-      } catch (notifyErr) {
-        console.error('Notify caregiver on review failed:', notifyErr.message);
-      }
-    }
-
-    const payload = await withJourney(await findById(booking.id), req.user.id);
-    res.created(
-      {
-        ...payload,
-        caregiver_rating: stats.avg_rating,
-        review_count: stats.total
-      },
-      'Review submitted'
-    );
+    const payload = await bookingService.submitReview(req.params.id, req.user.id, req.body);
+    return res.created(payload, 'Review submitted');
   } catch (error) {
-    console.error('Submit review error:', error);
-    res.serverError('Failed to submit review');
+    return mapServiceError(res, error, 'Failed to submit review');
   }
-};
+});
 
-exports.createDispute = async (req, res) => {
+exports.createDispute = asyncHandler(async (req, res) => {
   try {
-    const { reason, details } = req.body;
-    if (!reason) return res.badRequest('reason is required');
-
-    const booking = await findById(req.params.id);
-    if (!booking) return res.notFound('Booking not found');
-
-    const asProvider = await isAssignedCaregiver(booking, req.user.id);
-    if (booking.user_id !== req.user.id && !asProvider) {
-      return res.forbidden('Access denied');
-    }
-
-    if (!['PAYMENT_PAID', 'SERVICE_IN_PROGRESS', 'SERVICE_COMPLETED'].includes(booking.status)) {
-      return res.error('Dispute is allowed only after payment');
-    }
-
-    const existing = await Dispute.findOpenByBookingId(booking.id);
-    if (existing) {
-      return res.conflict('An open dispute already exists for this booking');
-    }
-
-    const dispute = await Dispute.createDispute({
-      bookingId: booking.id,
-      raisedBy: req.user.id,
-      role: asProvider ? 'CAREGIVER' : 'USER',
-      reason,
-      details
-    });
-
-    await writeAudit({
-      actorId: req.user.id,
-      action: 'DISPUTE_CREATED',
-      entityType: 'dispute',
-      entityId: dispute.id,
-      meta: { booking_id: booking.id, reason }
-    });
-
-    const notifyTarget = asProvider
-      ? booking.user_id
-      : (await getCaregiverProfileById(booking.provider_id))?.user_id;
-    if (notifyTarget) {
-      try {
-        await notifyUser({
-          userId: notifyTarget,
-          title: 'New dispute',
-          body: `A dispute was opened for booking ${booking.booking_number}.`,
-          type: 'DISPUTE_UPDATED',
-          bookingId: booking.id,
-          referenceId: dispute.id,
-          referenceType: 'dispute',
-          extraData: { screen: 'inbox' }
-        });
-      } catch (e) {
-        console.error('Dispute notify failed:', e.message);
-      }
-    }
-
+    const dispute = await bookingService.createDispute(req.params.id, req.user, req.body);
     return res.created(dispute, 'Dispute created');
   } catch (error) {
-    console.error('Create dispute error:', error);
-    return res.serverError('Failed to create dispute');
+    return mapServiceError(res, error, 'Failed to create dispute');
   }
-};
+});
 
-exports.getBookingDisputes = async (req, res) => {
-  try {
-    const booking = await findById(req.params.id);
-    if (!booking) return res.notFound('Booking not found');
+exports.getBookingDisputes = asyncHandler(async (req, res) => {
+  const booking = await findById(req.params.id);
+  if (!booking) return res.notFound('Booking not found');
 
-    const asProvider = await isAssignedCaregiver(booking, req.user.id);
-    if (booking.user_id !== req.user.id && !asProvider && req.user.role !== 'ADMIN') {
-      return res.forbidden('Access denied');
-    }
-
-    const items = await Dispute.listByBookingId(booking.id);
-    return res.success(items, 'Disputes fetched successfully');
-  } catch (error) {
-    console.error('Get disputes error:', error);
-    return res.serverError('Failed to fetch disputes');
+  const asProvider = await bookingService.isAssignedCaregiver(booking, req.user.id);
+  if (booking.user_id !== req.user.id && !asProvider && req.user.role !== 'ADMIN') {
+    return res.forbidden('Access denied');
   }
-};
+
+  const items = await Dispute.listByBookingId(booking.id);
+  return res.success(items, 'Disputes fetched successfully');
+});

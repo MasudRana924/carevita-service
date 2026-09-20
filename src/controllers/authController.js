@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const { createUser, findByEmail, findById, updateUser, updatePassword, verifyPassword, setVerified } = require('../models/User');
 const { generateToken, generateRefreshToken, verifyRefreshToken } = require('../config/jwt');
 const pool = require('../config/database');
@@ -5,9 +6,13 @@ const transporter = require('../config/nodemailer');
 const { authUser, publicUser } = require('../utils/serializers');
 const { ERROR_CODES } = require('../utils/apiResponse');
 
-/** Static OTP used when email delivery fails (and always stored in DB). */
-const STATIC_OTP = '5852';
+const DEV_OTP = process.env.DEV_OTP || '5852';
 const OTP_TTL_MS = 30 * 60 * 1000; // 30 minutes
+
+/** Static/dev OTP only when explicitly allowed and never in production. */
+const allowStaticOtp = () =>
+  process.env.ALLOW_STATIC_OTP === 'true' &&
+  process.env.NODE_ENV !== 'production';
 
 const sendEmailOTP = async (email, otp) => {
   try {
@@ -35,7 +40,15 @@ const sendEmailOTP = async (email, otp) => {
   }
 };
 
-const generateOTP = () => STATIC_OTP;
+const generateOTP = () => {
+  if (allowStaticOtp()) return String(DEV_OTP);
+  return String(crypto.randomInt(100000, 1000000));
+};
+
+const otpFailureMessage = () =>
+  allowStaticOtp()
+    ? `OTP saved. Email delivery failed — use OTP ${DEV_OTP} to verify.`
+    : 'OTP saved. Email delivery failed — please try again or contact support.';
 
 const saveRegistrationOTP = async (email, type = 'registration') => {
   const otp = generateOTP();
@@ -59,12 +72,9 @@ exports.sendOTP = async (req, res) => {
     const { otp, expiresAt } = await saveRegistrationOTP(email, type || 'registration');
     const emailSent = await sendEmailOTP(email, otp);
 
-    // Email failure is non-blocking: OTP 5852 is already saved and can be verified
     return res.success(
       { expiresAt, email_sent: emailSent },
-      emailSent
-        ? 'OTP sent successfully'
-        : 'OTP saved. Email delivery failed — use OTP 5852 to verify.'
+      emailSent ? 'OTP sent successfully' : otpFailureMessage()
     );
   } catch (error) {
     console.error('Send OTP error:', error);
@@ -81,10 +91,9 @@ exports.verifyOTP = async (req, res) => {
     }
 
     const submittedOtp = String(otp).trim();
-    const isStaticOtp = submittedOtp === STATIC_OTP;
+    const isStaticOtp = allowStaticOtp() && submittedOtp === String(DEV_OTP);
 
-    // Static OTP 5852: accept latest unused registration OTP even if expired
-    // (email may have failed; OTP is still stored as 5852)
+    // Dev static OTP: accept latest unused registration OTP even if expired
     let result;
     if (isStaticOtp) {
       result = await pool.query(
@@ -92,7 +101,7 @@ exports.verifyOTP = async (req, res) => {
          WHERE email = $1 AND type = 'registration' AND is_used = false
            AND otp = $2
          ORDER BY created_at DESC LIMIT 1`,
-        [email, STATIC_OTP]
+        [email, String(DEV_OTP)]
       );
     } else {
       result = await pool.query(
@@ -165,7 +174,9 @@ exports.register = async (req, res) => {
         : role === 'CAREGIVER'
           ? 'Caregiver registration successful. Please verify your email with the OTP sent to your email address.'
           : 'Registration successful. Please verify your email with the OTP sent to your email address.')
-      : 'Registration successful. Email delivery failed — use OTP 5852 to verify.';
+      : (allowStaticOtp()
+        ? `Registration successful. Email delivery failed — use OTP ${DEV_OTP} to verify.`
+        : 'Registration successful. Email delivery failed — please try again or contact support.');
 
     return res.created({
       user: userPayload,
@@ -369,12 +380,9 @@ exports.resendOTP = async (req, res) => {
     const { otp, expiresAt } = await saveRegistrationOTP(email, 'registration');
     const emailSent = await sendEmailOTP(email, otp);
 
-    // Email failure is non-blocking: OTP 5852 is already saved
     return res.success(
       { expiresAt, email_sent: emailSent },
-      emailSent
-        ? 'OTP resent successfully'
-        : 'OTP saved. Email delivery failed — use OTP 5852 to verify.'
+      emailSent ? 'OTP resent successfully' : otpFailureMessage()
     );
   } catch (error) {
     console.error('Resend OTP error:', error);

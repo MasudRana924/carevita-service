@@ -1,5 +1,5 @@
 const crypto = require('crypto');
-const { findById, updatePaymentStatus, addStatusHistory } = require('../models/Booking');
+const { findById } = require('../models/Booking');
 const Payment = require('../models/Payment');
 const {
   grantAndSaveUserToken,
@@ -9,9 +9,7 @@ const {
   queryBkashPayment,
   bkashConfig
 } = require('../services/bkashService');
-const { distributePaymentToWallets } = require('../services/walletService');
-const { getCaregiverProfileById } = require('../models/CaregiverProfile');
-const { notifyUser } = require('../services/pushNotificationService');
+const { completeSuccessfulPayment } = require('../services/paymentOrchestrationService');
 const {
   canUserPayBooking,
   payableAmount
@@ -219,69 +217,13 @@ exports.executePayment = async (req, res) => {
       return res.error('Payment execution failed', bkashRes, 400, ERROR_CODES.PAYMENT_FAILED);
     }
 
-    const updatedPayment = await Payment.markExecuted(payment.id, {
-      status: 'COMPLETED',
-      trx_id: bkashRes.trxID || bkashRes.trxId || null,
-      execute_response: bkashRes,
-      bkash_payment_id: paymentID
-    });
-
-    const updatedBooking = await updatePaymentStatus(booking.id, 'PAID', 'BKASH');
-    try {
-      await addStatusHistory(
-        booking.id,
-        booking.status,
-        'PAYMENT_PAID',
-        req.user.id,
-        'Payment completed via bKash'
-      );
-    } catch (historyErr) {
-      console.error('Payment status history failed:', historyErr.message);
-    }
-
-    const paidAmount = Number(bkashRes.amount || payment.amount || 0);
-    const trxId = bkashRes.trxID || bkashRes.trxId || null;
-
-    let walletResult = null;
-    let caregiverUserId = null;
-
-    try {
-      if (booking.provider_type === 'CAREGIVER' && booking.provider_id) {
-        const caregiver = await getCaregiverProfileById(booking.provider_id);
-        caregiverUserId = caregiver?.user_id || null;
-
-        if (caregiverUserId) {
-          walletResult = await distributePaymentToWallets({
-            payment: updatedPayment,
-            booking,
-            caregiverUserId,
-            paidAmount,
-            trxId
-          });
-
-          await notifyUser({
-            userId: caregiverUserId,
-            title: 'Payment Received — Start Booking',
-            body: `User paid for booking ${booking.booking_number}. You can start the booking now.`,
-            type: 'PAYMENT_RECEIVED',
-            bookingId: booking.id,
-            referenceId: booking.id,
-            referenceType: 'booking',
-            extraData: {
-              booking_number: booking.booking_number,
-              amount: String(paidAmount),
-              trx_id: String(trxId || ''),
-              payment_status: 'PAID',
-              status: 'PAYMENT_PAID',
-              action: 'START_BOOKING',
-              screen: 'booking_details'
-            }
-          });
-        }
-      }
-    } catch (postPayErr) {
-      console.error('Post-payment wallet/notify failed:', postPayErr.message);
-    }
+    const { booking: updatedBooking, payment: updatedPayment, walletResult } =
+      await completeSuccessfulPayment({
+        payment,
+        booking,
+        userId: req.user.id,
+        bkashRes
+      });
 
     res.success(
       {

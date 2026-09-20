@@ -78,7 +78,7 @@
  *               name: { type: string, example: Rahim Ahmed }
  *               email: { type: string, format: email }
  *               password: { type: string, format: password, minLength: 6 }
- *               role: { type: string, example: CUSTOMER, description: CUSTOMER | CAREGIVER | NURSE | ADMIN }
+ *               role: { type: string, example: USER, description: USER | CAREGIVER | ADMIN }
  *     responses:
  *       201:
  *         description: Registered successfully

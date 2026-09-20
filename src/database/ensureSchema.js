@@ -51,6 +51,8 @@ const ensureFamilyMembersSchema = async () => {
   for (const sql of alters) {
     await pool.query(sql);
   }
+
+  await pool.query('ALTER TABLE bookings ADD COLUMN IF NOT EXISTS offer_expires_at TIMESTAMP');
 };
 
 module.exports = { ensureFamilyMembersSchema };

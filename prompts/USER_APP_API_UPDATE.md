@@ -84,7 +84,21 @@ Overlap: if caregiver is busy, API returns 409 `CONFLICT` “Caregiver already h
 - `PUT /notifications/preferences` `{ "types": { "BOOKING_ACCEPTED": true, "SERVICE_START_REMINDER": false } }`
 - Public caregiver slots: `GET /caregiver/:id/availability` (`day_of_week` 0=Sunday … 6=Saturday)
 
-Push types to handle: `BOOKING_ACCEPTED`, `BOOKING_REASSIGNED`, `BOOKING_REJECTED` (searching), `BOOKING_CANCELLED`, `SERVICE_STARTED`, `SERVICE_COMPLETED`, `DISPUTE_UPDATED`. Deep link with `booking_id`.
+Push types to handle: `BOOKING_ACCEPTED`, `BOOKING_REASSIGNED`, `BOOKING_REJECTED` (searching), `BOOKING_SEARCHING`, `BOOKING_CANCELLED`, `SERVICE_STARTED`, `SERVICE_COMPLETED`, `DISPUTE_UPDATED`. Deep link with `booking_id`.
+
+## 3b. Auto-match + offer timeout (NEW — update booking UI)
+
+Create booking (`POST /bookings`):
+- `provider_id` is **optional**. Omit it (or send `auto_assign: true`) to let the server pick a caregiver by **weekly availability + hospital/family district/thana**.
+- Still may send a preferred `provider_id`; server checks overlap + availability slots.
+- Response / detail now includes:
+  - `offer_expires_at` — when the current caregiver must accept
+  - `accept_timeout_minutes` — configured timeout (default 15)
+- While `status === SEARCHING_PROVIDER` or after reassignment: show **“Finding another caregiver…”** (same as reject flow).
+- Push `BOOKING_REASSIGNED` / `BOOKING_SEARCHING` when offer times out (caregiver did not accept in time).
+- Caregiver accept/reject/start/complete are **only** on `/caregiver/bookings/:id/...` — do not call `/bookings/:id/accept` from the user app.
+
+OTP: production uses real emailed OTP (no hardcoded `5852`). Dev may still use static OTP only if backend has `ALLOW_STATIC_OTP=true`.
 
 ## 4. What NOT to build in user app now
 
@@ -97,12 +111,13 @@ Push types to handle: `BOOKING_ACCEPTED`, `BOOKING_REASSIGNED`, `BOOKING_REJECTE
 
 1. Central API client + envelope parser (all existing screens).
 2. Auth screens (`data.token` / `data.user`).
-3. Booking list/detail status UI + reassign/searching.
-4. Cancel sheet showing refund policy.
-5. Review comment field.
-6. Dispute screen after paid/completed.
-7. Notification mute settings.
-8. Show caregiver weekly slots before booking.
-9. Payment: idempotency header + query fallback.
+3. Booking list/detail status UI + reassign/searching + **offer countdown** (`offer_expires_at`).
+4. Optional: book without picking caregiver (auto-match).
+5. Cancel sheet showing refund policy.
+6. Review comment field.
+7. Dispute screen after paid/completed.
+8. Notification mute settings.
+9. Show caregiver weekly slots before booking.
+10. Payment: idempotency header + query fallback.
 
 Keep current visual design. Only change API mapping and the new booking/payment/notification flows.

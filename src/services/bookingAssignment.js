@@ -3,11 +3,13 @@ const {
   listRejectedIds,
   assignProvider,
   addStatusHistory,
-  clearProvider
+  clearProvider,
+  setOfferExpiry
 } = require('../models/Booking');
 const Availability = require('../models/Availability');
 const pool = require('../config/database');
 const { STATUSES } = require('./bookingJourney');
+const { ACCEPT_OFFER_TIMEOUT_MINUTES } = require('../config/platform');
 
 const toTime = (value) => {
   const raw = String(value || '').slice(0, 8);
@@ -63,35 +65,55 @@ const assertCaregiverFree = async (profile, booking, { excludeBookingId = null }
   }
 };
 
+/**
+ * Prefer caregivers matching hospital district (joined) or family district/thana.
+ */
 const findNextCaregiver = async (booking, extraExclude = []) => {
   const rejected = await listRejectedIds(booking.id);
   const exclude = [...new Set([...rejected, booking.provider_id, ...extraExclude].filter(Boolean))];
   const window = bookingWindow(booking);
+
+  const districtHint =
+    booking.hospital_district ||
+    booking.family_member_district ||
+    booking.district ||
+    null;
+  const thanaHint = booking.family_member_thana || booking.thana || null;
 
   const result = await pool.query(
     `
     SELECT cp.*
     FROM caregiver_profiles cp
     JOIN users u ON u.id = cp.user_id
+    LEFT JOIN hospitals h ON h.id = $4::uuid
     WHERE cp.is_available = true
       AND COALESCE(cp.verification_status, 'APPROVED') <> 'SUSPENDED'
       AND u.status = 'active'
       AND ($1::uuid[] IS NULL OR NOT (cp.id = ANY($1::uuid[])))
       AND (
-        $2::text IS NULL
-        OR cp.district ILIKE $2
-        OR cp.thana ILIKE $3
+        COALESCE(h.district, $2::text) IS NULL
+        OR cp.district ILIKE COALESCE(h.district, $2)
+        OR (
+          COALESCE($3::text, '') <> ''
+          AND cp.thana ILIKE $3
+        )
       )
     ORDER BY
-      CASE WHEN cp.district ILIKE $2 THEN 0 ELSE 1 END,
+      CASE
+        WHEN h.district IS NOT NULL AND cp.district ILIKE h.district THEN 0
+        WHEN $2::text IS NOT NULL AND cp.district ILIKE $2 THEN 1
+        WHEN $3::text IS NOT NULL AND cp.thana ILIKE $3 THEN 2
+        ELSE 3
+      END,
       cp.rating DESC NULLS LAST,
       cp.completed_bookings DESC NULLS LAST
     LIMIT 20
     `,
     [
       exclude.length ? exclude : null,
-      booking.family_member_district || booking.district || null,
-      booking.family_member_thana || booking.thana || null
+      districtHint,
+      thanaHint,
+      booking.hospital_id || null
     ]
   );
 
@@ -120,7 +142,8 @@ const findNextCaregiver = async (booking, extraExclude = []) => {
 const reassignOrSearch = async (booking, actorId, note) => {
   const next = await findNextCaregiver(booking, [booking.provider_id]);
   if (next) {
-    const updated = await assignProvider(booking.id, next.id, STATUSES.PROVIDER_ASSIGNED);
+    let updated = await assignProvider(booking.id, next.id, STATUSES.PROVIDER_ASSIGNED);
+    updated = (await setOfferExpiry(booking.id, ACCEPT_OFFER_TIMEOUT_MINUTES)) || updated;
     await addStatusHistory(
       booking.id,
       booking.status,

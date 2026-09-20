@@ -12,8 +12,8 @@ const responseHandler = require('./middleware/responseHandler');
 const routes = require('./routes');
 const pool = require('./config/database');
 const { ensureFamilyMembersSchema } = require('./database/ensureSchema');
-const migrate = require('./database/migrate');
 const { startStartReminderJob } = require('./services/startReminderJob');
+const { startAcceptOfferTimeoutJob } = require('./services/acceptOfferTimeoutJob');
 
 const app = express();
 const PORT = process.env.PORT || 8000;
@@ -109,10 +109,10 @@ app.listen(PORT, '0.0.0.0', async () => {
   try {
     await pool.query('SELECT NOW()');
     console.log('Database connection established successfully');
-    await migrate({ closePool: false });
     await ensureFamilyMembersSchema();
     console.log('Database schema verified');
     startStartReminderJob();
+    startAcceptOfferTimeoutJob();
   } catch (error) {
     console.error('Database startup check failed:', error.message);
   }

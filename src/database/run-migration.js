@@ -8,7 +8,8 @@ const FILES = [
   'fix_notification_tokens_unique.sql',
   'add_bkash_payments.sql',
   'add_wallets.sql',
-  'add_service_lifecycle.sql'
+  'add_service_lifecycle.sql',
+  'add_booking_offer_timeout.sql'
 ];
 
 const runMigration = async () => {

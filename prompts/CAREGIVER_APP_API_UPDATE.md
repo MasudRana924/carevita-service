@@ -98,10 +98,24 @@ Notifications:
 
 Push types: `BOOKING_CREATED`, `PAYMENT_RECEIVED` (start now), `SERVICE_START_REMINDER`, `EARNING_SETTLED`, `REVIEW_RECEIVED`, `DISPUTE_UPDATED`, `WITHDRAWAL_UPDATED`. Always open via `booking_id` / `screen`.
 
+## 3b. Offer timeout (NEW — update booking job UI)
+
+When status is `PROVIDER_ASSIGNED`:
+- Detail includes `offer_expires_at` and `accept_timeout_minutes`.
+- Show a **countdown** (“Accept within Xm”). If the timer hits zero and you did not accept, the offer is auto-withdrawn and the booking leaves your list (reassigned or searching).
+- Push `BOOKING_CREATED` may include `offer_expires_at` in `extraData`.
+- Use only caregiver routes for actions:
+  - `POST /caregiver/bookings/:id/accept`
+  - `POST /caregiver/bookings/:id/reject`
+  - `POST /caregiver/bookings/:id/start`
+  - `POST /caregiver/bookings/:id/complete`
+- Do **not** rely on `/bookings/:id/accept` (removed from user booking routes).
+
+OTP: real email OTP in production. Static OTP only if backend enables `ALLOW_STATIC_OTP` in non-production.
+
 ## 4. What NOT to build now
 
-- eKYC / NID / selfie
-- Map/distance matching
+- Map/distance matching UI (server already ranks by district/thana + availability)
 - Admin dashboard
 - User family medical records
 - Direct bKash refund APIs (user/admin only)
@@ -111,10 +125,11 @@ Push types: `BOOKING_CREATED`, `PAYMENT_RECEIVED` (start now), `SERVICE_START_RE
 1. Envelope parser for every existing screen (login, profile, bookings, wallet).
 2. Hide medical/why-hospital fields on booking cards and details.
 3. Accept overlap/slot error toasts; reject → booking disappears / “reassigned”.
-4. Weekly availability editor.
-5. Withdrawal request + history on wallet screen.
-6. Show review comments.
-7. Notification mute settings.
-8. Dispute button after `PAYMENT_PAID` / completed.
+4. **Offer countdown** on `PROVIDER_ASSIGNED` jobs.
+5. Weekly availability editor (critical for auto-match).
+6. Withdrawal request + history on wallet screen.
+7. Show review comments.
+8. Notification mute settings.
+9. Dispute button after `PAYMENT_PAID` / completed.
 
 Keep current visual design. Only change API mapping and the new flows.
