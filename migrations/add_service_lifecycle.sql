@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS reviews (
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   caregiver_profile_id UUID NOT NULL REFERENCES caregiver_profiles(id) ON DELETE CASCADE,
   rating INTEGER NOT NULL CHECK (rating >= 1 AND rating <= 5),
+  comment TEXT,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -18,3 +19,5 @@ CREATE TABLE IF NOT EXISTS reviews (
 CREATE INDEX IF NOT EXISTS idx_reviews_caregiver ON reviews(caregiver_profile_id);
 CREATE INDEX IF NOT EXISTS idx_reviews_user ON reviews(user_id);
 CREATE INDEX IF NOT EXISTS idx_bookings_status ON bookings(status);
+
+ALTER TABLE reviews ADD COLUMN IF NOT EXISTS comment TEXT;

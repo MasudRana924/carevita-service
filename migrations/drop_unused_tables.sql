@@ -1,6 +1,8 @@
--- CareMate v2: drop unused tables from old features (nurse, medicine, wallet, etc.)
--- Keeps only: users, otp_verifications, family_members, hospitals, caregiver_profiles,
--- bookings, booking_status_history, notification_tokens, inbox, notifications
+-- CareMate v2: drop unused tables from old features (nurse, medicine, etc.)
+-- Keeps: users, otp_verifications, family_members, hospitals, caregiver_profiles,
+-- bookings, booking_status_history, notification_tokens, inbox, notifications,
+-- reviews, payments, wallets, and other active v2 tables
+-- Do NOT drop reviews — booking list/detail and caregiver ratings depend on it.
 
 DROP TABLE IF EXISTS medicine_order_items CASCADE;
 DROP TABLE IF EXISTS medicine_orders CASCADE;
@@ -41,7 +43,7 @@ DROP TABLE IF EXISTS support_tickets CASCADE;
 DROP TABLE IF EXISTS support_messages CASCADE;
 DROP TABLE IF EXISTS disputes CASCADE;
 
-DROP TABLE IF EXISTS reviews CASCADE;
+-- reviews is required by booking journey (can_review / submit review) — do not drop
 DROP TABLE IF EXISTS ratings CASCADE;
 
 DROP TABLE IF EXISTS withdrawals CASCADE;
