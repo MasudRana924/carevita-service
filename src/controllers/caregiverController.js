@@ -5,12 +5,19 @@ const {
   updateCaregiverProfile,
   searchCaregivers
 } = require('../models/CaregiverProfile');
+const { updateUser } = require('../models/User');
 const { findByProviderId: findBookingsByProviderId } = require('../models/Booking');
 const Wallet = require('../models/Wallet');
 const Review = require('../models/Review');
 const { journeyFlags, presentBooking } = require('../services/bookingJourney');
 const { parsePagination } = require('../utils/pagination');
 const { syncProfileFromUser } = require('../services/ekycService');
+
+const presentOrUndefined = (value) => {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value === 'string' && value.trim() === '') return undefined;
+  return value;
+};
 
 /** Parse multipart/JSON service_areas into a TEXT[]-safe JS array. */
 const parseServiceAreas = (value) => {
@@ -98,28 +105,35 @@ exports.getMyProfile = async (req, res) => {
 exports.updateMyProfile = async (req, res) => {
   try {
     const {
-      bio, experience_years, service_areas, hourly_rate, is_available,
+      name, bio, experience_years, service_areas, hourly_rate, is_available,
       education, blood_group, date_of_birth, gender, district, thana
     } = req.body;
 
     const profile = await getCaregiverProfileByUserId(req.user.id);
     if (!profile) return res.notFound('Profile not found');
 
+    // name lives on users table (same as /user/profile) — not caregiver_profiles
+    if (presentOrUndefined(name) !== undefined) {
+      await updateUser(req.user.id, { name: String(name).trim() });
+    }
+
     const profilePhoto = req.file ? req.file.path : undefined;
+    const districtValue = presentOrUndefined(district);
+    const thanaValue = presentOrUndefined(thana);
 
     const updatedProfile = await updateCaregiverProfile(profile.id, {
-      bio,
+      bio: presentOrUndefined(bio),
       experience_years: experience_years != null && experience_years !== '' ? Number(experience_years) : undefined,
       service_areas: parseServiceAreas(service_areas),
       hourly_rate: hourly_rate != null && hourly_rate !== '' ? Number(hourly_rate) : undefined,
       is_available: parseBoolean(is_available),
-      education,
-      blood_group,
-      date_of_birth: date_of_birth || undefined,
+      education: presentOrUndefined(education),
+      blood_group: presentOrUndefined(blood_group),
+      date_of_birth: presentOrUndefined(date_of_birth),
       profile_photo: profilePhoto,
-      gender,
-      district: district !== undefined ? String(district).trim() : undefined,
-      thana: thana !== undefined ? String(thana).trim() : undefined
+      gender: presentOrUndefined(gender),
+      district: districtValue !== undefined ? String(districtValue).trim() : undefined,
+      thana: thanaValue !== undefined ? String(thanaValue).trim() : undefined
     });
 
     res.success(updatedProfile, 'Profile updated successfully');

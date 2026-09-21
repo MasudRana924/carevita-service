@@ -26,54 +26,74 @@ const createCaregiverProfile = async (profileData) => {
   return result.rows[0];
 };
 
+const PROFILE_WITH_USER_SQL = `
+  SELECT cp.*,
+         u.name,
+         u.email,
+         u.phone,
+         u.language_preference,
+         u.emergency_contact,
+         u.address
+  FROM caregiver_profiles cp
+  JOIN users u ON u.id = cp.user_id
+`;
+
 const getCaregiverProfileByUserId = async (userId) => {
-  const query = 'SELECT * FROM caregiver_profiles WHERE user_id = $1';
-  const result = await pool.query(query, [userId]);
+  const result = await pool.query(
+    `${PROFILE_WITH_USER_SQL} WHERE cp.user_id = $1`,
+    [userId]
+  );
   return result.rows[0];
 };
 
 const getCaregiverProfileById = async (id) => {
-  const query = 'SELECT * FROM caregiver_profiles WHERE id = $1';
-  const result = await pool.query(query, [id]);
+  const result = await pool.query(
+    `${PROFILE_WITH_USER_SQL} WHERE cp.id = $1`,
+    [id]
+  );
   return result.rows[0];
 };
 
 const updateCaregiverProfile = async (id, updateData) => {
-  const {
-    bio, experience_years, service_areas, hourly_rate, is_available,
-    education, blood_group, date_of_birth, profile_photo, gender,
-    district, thana, ekyc_status, ekyc_verified_at, ekyc_reference_id
-  } = updateData;
-
-  const query = `
-    UPDATE caregiver_profiles
-    SET bio = COALESCE($1, bio),
-        experience_years = COALESCE($2, experience_years),
-        service_areas = COALESCE($3, service_areas),
-        hourly_rate = COALESCE($4, hourly_rate),
-        is_available = COALESCE($5, is_available),
-        education = COALESCE($6, education),
-        blood_group = COALESCE($7, blood_group),
-        date_of_birth = COALESCE($8, date_of_birth),
-        profile_photo = COALESCE($9, profile_photo),
-        gender = COALESCE($10, gender),
-        district = COALESCE($11, district),
-        thana = COALESCE($12, thana),
-        ekyc_status = COALESCE($13, ekyc_status),
-        ekyc_verified_at = COALESCE($14, ekyc_verified_at),
-        ekyc_reference_id = COALESCE($15, ekyc_reference_id),
-        updated_at = CURRENT_TIMESTAMP
-    WHERE id = $16
-    RETURNING *
-  `;
-  const values = [
-    bio, experience_years, service_areas, hourly_rate, is_available,
-    education, blood_group, date_of_birth, profile_photo, gender,
-    district, thana, ekyc_status, ekyc_verified_at, ekyc_reference_id, id
+  const allowedFields = [
+    'bio',
+    'experience_years',
+    'service_areas',
+    'hourly_rate',
+    'is_available',
+    'education',
+    'blood_group',
+    'date_of_birth',
+    'profile_photo',
+    'gender',
+    'district',
+    'thana'
   ];
 
-  const result = await pool.query(query, values);
-  return result.rows[0];
+  const sets = [];
+  const values = [];
+  let param = 1;
+
+  for (const field of allowedFields) {
+    if (Object.prototype.hasOwnProperty.call(updateData, field) && updateData[field] !== undefined) {
+      sets.push(`${field} = $${param++}`);
+      values.push(updateData[field]);
+    }
+  }
+
+  if (sets.length === 0) {
+    return getCaregiverProfileById(id);
+  }
+
+  sets.push('updated_at = CURRENT_TIMESTAMP');
+  values.push(id);
+
+  await pool.query(
+    `UPDATE caregiver_profiles SET ${sets.join(', ')} WHERE id = $${param} RETURNING id`,
+    values
+  );
+
+  return getCaregiverProfileById(id);
 };
 
 const updateVerificationStatus = async (id, status, note) => {

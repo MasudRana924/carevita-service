@@ -50,7 +50,18 @@ const updateUser = async (id, userData) => {
     WHERE id = $9
     RETURNING *
   `;
-  const values = [name, email, phone, profile_photo, language_preference, emergency_contact, address, date_of_birth, id];
+  // pg rejects undefined bind params — null keeps existing value via COALESCE
+  const values = [
+    name ?? null,
+    email ?? null,
+    phone ?? null,
+    profile_photo ?? null,
+    language_preference ?? null,
+    emergency_contact ?? null,
+    address ?? null,
+    date_of_birth ?? null,
+    id
+  ];
 
   const result = await pool.query(query, values);
   return result.rows[0];
