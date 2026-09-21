@@ -31,4 +31,25 @@ const upload = multer({
   },
 });
 
+/**
+ * Run Cloudinary upload only for multipart requests.
+ * JSON profile updates (common from React Native) skip multer entirely —
+ * avoids Android PUT+FormData hangs that surface as gateway 502s.
+ */
+upload.optionalSingle = (fieldName) => (req, res, next) => {
+  const contentType = String(req.headers['content-type'] || '');
+  if (!contentType.includes('multipart/form-data')) {
+    return next();
+  }
+
+  upload.single(fieldName)(req, res, (err) => {
+    if (!err) return next();
+
+    console.error('Upload middleware error:', err.message || err);
+    err.statusCode = err.statusCode || 400;
+    err.code = err.code || 'VALIDATION_ERROR';
+    return next(err);
+  });
+};
+
 module.exports = upload;

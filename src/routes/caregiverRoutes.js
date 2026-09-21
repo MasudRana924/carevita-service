@@ -8,9 +8,9 @@ const availabilityController = require('../controllers/availabilityController');
 const withdrawalController = require('../controllers/withdrawalController');
 const ekycController = require('../controllers/ekycController');
 
-router.post('/profile', authenticate, authorize('CAREGIVER'), upload.single('profile_photo'), caregiverController.createProfile);
+router.post('/profile', authenticate, authorize('CAREGIVER'), upload.optionalSingle('profile_photo'), caregiverController.createProfile);
 router.get('/profile', authenticate, authorize('CAREGIVER'), caregiverController.getMyProfile);
-router.put('/profile', authenticate, authorize('CAREGIVER'), upload.single('profile_photo'), caregiverController.updateMyProfile);
+router.put('/profile', authenticate, authorize('CAREGIVER'), upload.optionalSingle('profile_photo'), caregiverController.updateMyProfile);
 router.get('/search', caregiverController.searchCaregivers);
 router.get('/availability', authenticate, authorize('CAREGIVER'), availabilityController.getMyAvailability);
 router.put('/availability', authenticate, authorize('CAREGIVER'), availabilityController.updateMyAvailability);

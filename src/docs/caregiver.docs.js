@@ -34,9 +34,28 @@
  *         description: Profile
  *   put:
  *     tags: [Caregiver]
- *     summary: Update caregiver profile
+ *     summary: Update caregiver profile (JSON or multipart)
+ *     description: >
+ *       Prefer application/json from React Native for field-only updates.
+ *       Use multipart/form-data only when uploading profile_photo.
+ *       Do not manually set Content-Type for FormData (boundary required).
  *     requestBody:
  *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               bio: { type: string }
+ *               experience_years: { type: integer }
+ *               service_areas: { type: string, example: "Dhaka,Mirpur" }
+ *               hourly_rate: { type: number }
+ *               is_available: { type: boolean }
+ *               education: { type: string }
+ *               blood_group: { type: string }
+ *               date_of_birth: { type: string, format: date }
+ *               gender: { type: string }
+ *               district: { type: string, example: Dhaka }
+ *               thana: { type: string, example: Dhanmondi }
  *         multipart/form-data:
  *           schema:
  *             type: object
