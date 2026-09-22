@@ -40,13 +40,20 @@ const grantTokenFromBkash = async () => {
       appKeySet: Boolean(bkashConfig.app_key),
       data: preview
     });
-    const err = new Error(
+    const bkashMsg =
       body.statusMessage ||
-        body.errorMessage ||
-        body.message ||
-        (typeof data === 'string'
-          ? `bKash grant token failed (HTTP ${response.status})`
-          : 'No id_token received from bKash')
+      body.errorMessage ||
+      body.message ||
+      body.msg ||
+      null;
+    const err = new Error(
+      bkashMsg
+        ? `bKash grant token failed: ${bkashMsg}`
+        : body.status === 'fail'
+          ? `bKash grant token failed (status=fail, HTTP ${response.status}) — check BKASH_USERNAME/PASSWORD/APP_KEY/APP_SECRET`
+          : typeof data === 'string'
+            ? `bKash grant token failed (HTTP ${response.status})`
+            : `No id_token received from bKash (HTTP ${response.status})`
     );
     err.details = typeof data === 'string' ? { raw: preview } : body;
     err.status = response.status;
