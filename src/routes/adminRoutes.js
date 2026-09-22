@@ -4,6 +4,7 @@ const adminController = require('../controllers/adminController');
 const adminOpsController = require('../controllers/adminOpsController');
 const withdrawalController = require('../controllers/withdrawalController');
 const bookingController = require('../controllers/bookingController');
+const privacyPolicyController = require('../controllers/privacyPolicyController');
 const { authenticate, authorize } = require('../middleware/auth');
 const upload = require('../middleware/upload');
 
@@ -21,6 +22,7 @@ router.get('/caregivers', ...admin, adminController.getAllCaregivers);
 router.get('/caregivers/:id/ekyc', ...admin, adminController.getCaregiverEkyc);
 router.post('/caregivers/:id/ekyc/approve', ...admin, adminController.approveCaregiverEkyc);
 router.post('/caregivers/:id/ekyc/decline', ...admin, adminController.declineCaregiverEkyc);
+router.post('/caregivers/:id/credentials', ...admin, adminController.reviewCredentials);
 router.put('/caregivers/:id/block', ...admin, adminController.blockCaregiver);
 router.put('/caregivers/:id/unblock', ...admin, adminController.unblockCaregiver);
 
@@ -39,6 +41,12 @@ router.patch('/disputes/:id', ...admin, adminOpsController.updateDispute);
 router.get('/withdrawals', ...admin, withdrawalController.adminListWithdrawals);
 router.post('/withdrawals/:id/approve', ...admin, withdrawalController.adminApproveWithdrawal);
 router.post('/withdrawals/:id/reject', ...admin, withdrawalController.adminRejectWithdrawal);
+
+router.get('/safety-incidents', ...admin, adminOpsController.listSafetyIncidents);
+router.patch('/safety-incidents/:id', ...admin, adminOpsController.updateSafetyIncident);
+
+router.get('/privacy-policies', ...admin, privacyPolicyController.adminList);
+router.put('/privacy-policies', ...admin, privacyPolicyController.adminUpsert);
 
 router.get('/audit-logs', ...admin, adminOpsController.listAuditLogs);
 

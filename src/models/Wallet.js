@@ -153,8 +153,9 @@ const mutateBalance = async (client, {
   return { wallet, transaction: tx.rows[0] };
 };
 
-const hasPaymentCredits = async (paymentId) => {
-  const result = await pool.query(
+const hasPaymentCredits = async (paymentId, client = null) => {
+  const db = client || pool;
+  const result = await db.query(
     `SELECT 1 FROM wallet_transactions WHERE payment_id = $1 LIMIT 1`,
     [paymentId]
   );

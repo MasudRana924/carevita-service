@@ -11,7 +11,9 @@
     "migrate:clean": "node src/database/run-migration.js",
     "migrate:sql": "node src/database/migrateRunner.js",
     "db:tables": "node src/database/list-tables.js",
-    "seed": "node src/database/seed.js"
+    "seed": "node src/database/seed.js",
+    "test": "jest --runInBand",
+    "test:unit": "jest --runInBand --testPathPattern=tests/unit"
   },
   "keywords": [
     "healthcare",
@@ -45,6 +47,8 @@
     "uuid": "^9.0.1"
   },
   "devDependencies": {
-    "nodemon": "^3.0.2"
+    "jest": "^29.7.0",
+    "nodemon": "^3.0.2",
+    "supertest": "^7.0.0"
   }
 }

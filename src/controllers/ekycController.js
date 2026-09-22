@@ -59,6 +59,16 @@ exports.webhook = async (req, res) => {
     });
 
     if (!verified.ok) {
+      const { writeAudit } = require('../utils/audit');
+      await writeAudit({
+        action: 'DIDIT_WEBHOOK_REJECTED',
+        entityType: 'ekyc',
+        meta: {
+          reason: verified.reason || 'invalid_signature',
+          requestId: req.requestId,
+          session_id: req.body?.session_id || null
+        }
+      });
       return res.unauthorized('Invalid Didit webhook signature');
     }
 

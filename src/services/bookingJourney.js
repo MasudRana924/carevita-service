@@ -98,19 +98,7 @@ const publicReview = (review) => {
   };
 };
 
-const presentBooking = (booking, { asProvider = false } = {}) => {
-  if (!booking) return booking;
-  if (!asProvider) return booking;
-
-  const hidden = { ...booking };
-  delete hidden.patient_requirements;
-  delete hidden.medical_history;
-  delete hidden.existing_conditions;
-  delete hidden.allergies;
-  delete hidden.current_medications;
-  delete hidden.family_member_blood_group;
-  return hidden;
-};
+const { presentBooking } = require('../utils/phiPolicy');
 
 const journeyFlags = (booking, { userId, asProvider, review = null }) => {
   const status = String(booking.status || '').toUpperCase();

@@ -15,6 +15,30 @@ const hoursUntilStart = (booking) => {
   return (new Date(start).getTime() - Date.now()) / (1000 * 60 * 60);
 };
 
+/** Prefer booking money_rules_snapshot over live env (historical determinism). */
+const resolveCancelRules = (booking) => {
+  let snap = booking?.money_rules_snapshot;
+  if (typeof snap === 'string') {
+    try {
+      snap = JSON.parse(snap);
+    } catch {
+      snap = {};
+    }
+  }
+  if (!snap || typeof snap !== 'object') snap = {};
+  return {
+    fullHours: Number.isFinite(Number(snap.CANCEL_FULL_REFUND_HOURS))
+      ? Number(snap.CANCEL_FULL_REFUND_HOURS)
+      : CANCEL_FULL_REFUND_HOURS,
+    partialHours: Number.isFinite(Number(snap.CANCEL_PARTIAL_REFUND_HOURS))
+      ? Number(snap.CANCEL_PARTIAL_REFUND_HOURS)
+      : CANCEL_PARTIAL_REFUND_HOURS,
+    partialPercent: Number.isFinite(Number(snap.CANCEL_PARTIAL_REFUND_PERCENT))
+      ? Number(snap.CANCEL_PARTIAL_REFUND_PERCENT)
+      : CANCEL_PARTIAL_REFUND_PERCENT
+  };
+};
+
 const evaluateCancellation = (booking, { byAdmin = false } = {}) => {
   const status = String(booking.status || '').toUpperCase();
 
@@ -39,15 +63,16 @@ const evaluateCancellation = (booking, { byAdmin = false } = {}) => {
     };
   }
 
+  const rules = resolveCancelRules(booking);
   const hours = hoursUntilStart(booking);
   let refundPercent = 0;
   let policy = 'NO_REFUND';
 
-  if (byAdmin || hours >= CANCEL_FULL_REFUND_HOURS) {
+  if (byAdmin || hours >= rules.fullHours) {
     refundPercent = 100;
     policy = 'FULL_REFUND';
-  } else if (hours >= CANCEL_PARTIAL_REFUND_HOURS) {
-    refundPercent = CANCEL_PARTIAL_REFUND_PERCENT;
+  } else if (hours >= rules.partialHours) {
+    refundPercent = rules.partialPercent;
     policy = 'PARTIAL_REFUND';
   }
 
@@ -60,13 +85,14 @@ const evaluateCancellation = (booking, { byAdmin = false } = {}) => {
     refundAmount,
     hoursUntilStart: Number(hours.toFixed(2)),
     policy,
-    fullRefundHours: CANCEL_FULL_REFUND_HOURS,
-    partialRefundHours: CANCEL_PARTIAL_REFUND_HOURS,
-    partialRefundPercent: CANCEL_PARTIAL_REFUND_PERCENT
+    fullRefundHours: rules.fullHours,
+    partialRefundHours: rules.partialHours,
+    partialRefundPercent: rules.partialPercent
   };
 };
 
 module.exports = {
   hoursUntilStart,
-  evaluateCancellation
+  evaluateCancellation,
+  resolveCancelRules
 };

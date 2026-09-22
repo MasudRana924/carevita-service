@@ -20,12 +20,18 @@
  *               gender: { type: string }
  *               district: { type: string, example: Dhaka, description: Required }
  *               thana: { type: string, example: Dhanmondi, description: Required }
+ *               provider_type: { type: string, enum: [CAREGIVER, NURSE], example: CAREGIVER }
+ *               credential_number: { type: string, description: Required when provider_type=NURSE }
+ *               credential_type: { type: string, example: BNMC_LICENSE }
+ *               specialization: { type: string }
  *               profile_photo:
  *                 type: string
  *                 format: binary
  *     responses:
  *       201:
  *         description: Profile created
+ *       400:
+ *         description: Missing district/thana or nurse credential_number
  *   get:
  *     tags: [Caregiver]
  *     summary: Get my caregiver profile
@@ -56,6 +62,9 @@
  *               gender: { type: string }
  *               district: { type: string, example: Dhaka }
  *               thana: { type: string, example: Dhanmondi }
+ *               credential_number: { type: string }
+ *               credential_type: { type: string }
+ *               specialization: { type: string }
  *         multipart/form-data:
  *           schema:
  *             type: object
@@ -71,6 +80,9 @@
  *               gender: { type: string }
  *               district: { type: string, example: Dhaka }
  *               thana: { type: string, example: Dhanmondi }
+ *               credential_number: { type: string }
+ *               credential_type: { type: string }
+ *               specialization: { type: string }
  *               profile_photo:
  *                 type: string
  *                 format: binary
@@ -241,8 +253,10 @@
  *         application/json:
  *           schema:
  *             type: object
- *             required: [latitude, longitude]
+ *             required: [latitude, longitude, consent]
  *             properties:
+ *               consent: { type: boolean, example: true, description: Required true on first publish (or consent_granted) }
+ *               consent_granted: { type: boolean, example: true }
  *               latitude: { type: number }
  *               longitude: { type: number }
  *               accuracy: { type: number }
@@ -251,6 +265,8 @@
  *     responses:
  *       200:
  *         description: Location updated and broadcast over Socket.IO
+ *       400:
+ *         description: Missing consent or invalid coordinates
  *
  * /caregiver/bookings/{id}/complete:
  *   post:

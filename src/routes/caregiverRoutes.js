@@ -7,6 +7,7 @@ const bookingController = require('../controllers/bookingController');
 const availabilityController = require('../controllers/availabilityController');
 const withdrawalController = require('../controllers/withdrawalController');
 const ekycController = require('../controllers/ekycController');
+const { withdrawalLimiter } = require('../middleware/rateLimiter');
 
 router.post('/profile', authenticate, authorize('CAREGIVER'), upload.optionalSingle('profile_photo'), caregiverController.createProfile);
 router.get('/profile', authenticate, authorize('CAREGIVER'), caregiverController.getMyProfile);
@@ -19,7 +20,7 @@ router.get('/wallet', authenticate, authorize('CAREGIVER'), caregiverController.
 router.get('/reviews/my', authenticate, authorize('CAREGIVER'), caregiverController.getMyReviews);
 router.get('/withdrawals/delivery-methods', authenticate, authorize('CAREGIVER'), withdrawalController.listDeliveryMethods);
 router.get('/withdrawals/delivery-methods/:method', authenticate, authorize('CAREGIVER'), withdrawalController.getDeliveryMethodFields);
-router.post('/withdrawals', authenticate, authorize('CAREGIVER'), withdrawalController.requestWithdrawal);
+router.post('/withdrawals', authenticate, authorize('CAREGIVER'), withdrawalLimiter, withdrawalController.requestWithdrawal);
 router.get('/withdrawals', authenticate, authorize('CAREGIVER'), withdrawalController.myWithdrawals);
 router.post('/ekyc/initiate', authenticate, authorize('CAREGIVER'), ekycController.initiate);
 router.get('/ekyc/status', authenticate, authorize('CAREGIVER'), ekycController.getStatus);

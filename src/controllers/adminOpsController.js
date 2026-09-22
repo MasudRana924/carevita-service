@@ -25,6 +25,24 @@ exports.getBooking = async (req, res) => {
     const booking = await findById(req.params.id);
     if (!booking) return res.notFound('Booking not found');
     const history = await getStatusHistory(booking.id);
+
+    const hasPhi =
+      booking.medical_history ||
+      booking.allergies ||
+      booking.existing_conditions ||
+      booking.current_medications ||
+      booking.family_member_medical_history;
+
+    if (hasPhi) {
+      await writeAudit({
+        actorId: req.user.id,
+        action: 'ADMIN_PHI_ACCESS',
+        entityType: 'booking',
+        entityId: booking.id,
+        meta: { path: 'admin/bookings/:id', requestId: req.requestId }
+      });
+    }
+
     return res.success({ ...booking, history }, 'Booking fetched successfully');
   } catch (error) {
     console.error('Admin get booking error:', error);
@@ -90,6 +108,45 @@ exports.updateDispute = async (req, res) => {
   } catch (error) {
     console.error('Admin update dispute error:', error);
     return res.serverError('Failed to update dispute');
+  }
+};
+
+exports.listSafetyIncidents = async (req, res) => {
+  try {
+    const { parsePagination } = require('../utils/pagination');
+    const { listIncidentsForAdmin } = require('../services/safetyIncidentService');
+    const { page, limit } = parsePagination(req.query);
+    const { items, total } = await listIncidentsForAdmin({
+      status: req.query.status,
+      page,
+      limit
+    });
+    return res.paginated(items, { page, limit, total }, 'Safety incidents fetched');
+  } catch (error) {
+    console.error('List safety incidents error:', error);
+    return res.serverError('Failed to list safety incidents');
+  }
+};
+
+exports.updateSafetyIncident = async (req, res) => {
+  try {
+    const { resolveIncident } = require('../services/safetyIncidentService');
+    const status = req.body?.status;
+    if (!status) return res.badRequest('status is required');
+    const updated = await resolveIncident({
+      incidentId: req.params.id,
+      admin: req.user,
+      status,
+      adminNote: req.body?.note || req.body?.admin_note || null,
+      unfreezePayout: req.body?.unfreeze_payout === true || req.body?.unfreezePayout === true
+    });
+    return res.success(updated, 'Safety incident updated');
+  } catch (error) {
+    console.error('Update safety incident error:', error);
+    if (error.statusCode) {
+      return res.error(error.message, [], error.statusCode, error.code);
+    }
+    return res.serverError('Failed to update safety incident');
   }
 };
 

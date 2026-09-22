@@ -79,6 +79,15 @@ exports.requestWithdrawal = async (req, res) => {
       return res.conflict('You already have a pending withdrawal request');
     }
 
+    if (await Withdrawal.hasPayoutFreeze(req.user.id)) {
+      return res.error(
+        'Withdrawals are temporarily frozen due to a safety review on one of your bookings. Contact support.',
+        [],
+        403,
+        'FORBIDDEN'
+      );
+    }
+
     const wallet = await Wallet.getOrCreateWallet(null, {
       userId: req.user.id,
       ownerType: 'CAREGIVER'
@@ -144,12 +153,39 @@ exports.adminApproveWithdrawal = async (req, res) => {
       return res.error('Only pending withdrawals can be approved');
     }
 
+    if (await Withdrawal.hasPayoutFreeze(withdrawal.caregiver_user_id)) {
+      return res.error(
+        'Cannot approve: caregiver payout is frozen due to a safety incident',
+        [],
+        409,
+        'CONFLICT'
+      );
+    }
+
     const destination = payoutDestinationLabel(withdrawal);
     const pool = require('../config/database');
     const dbClient = await pool.connect();
     let updated;
     try {
       await dbClient.query('BEGIN');
+
+      const claimed = await dbClient.query(
+        `
+        UPDATE withdrawals
+        SET status = 'PROCESSING',
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = $1 AND status = 'PENDING'
+        RETURNING *
+        `,
+        [withdrawal.id]
+      );
+      if (!claimed.rowCount) {
+        await dbClient.query('ROLLBACK');
+        return res.error('Withdrawal already processed');
+      }
+
+      await dbClient.query(`SELECT id FROM wallets WHERE id = $1 FOR UPDATE`, [withdrawal.wallet_id]);
+
       await Wallet.debit(dbClient, {
         walletId: withdrawal.wallet_id,
         userId: withdrawal.caregiver_user_id,
@@ -171,12 +207,15 @@ exports.adminApproveWithdrawal = async (req, res) => {
             processed_by = $2,
             processed_at = CURRENT_TIMESTAMP,
             updated_at = CURRENT_TIMESTAMP
-        WHERE id = $3
+        WHERE id = $3 AND status = 'PROCESSING'
         RETURNING *
         `,
         [req.body.note || `Paid via ${withdrawal.method || 'MFS'} to ${destination}`, req.user.id, withdrawal.id]
       );
       updated = result.rows[0];
+      if (!updated) {
+        throw new Error('Failed to finalize withdrawal');
+      }
       await dbClient.query('COMMIT');
     } catch (err) {
       await dbClient.query('ROLLBACK');
@@ -217,8 +256,9 @@ exports.adminRejectWithdrawal = async (req, res) => {
   try {
     const withdrawal = await Withdrawal.findById(req.params.id);
     if (!withdrawal) return res.notFound('Withdrawal not found');
-    if (withdrawal.status !== 'PENDING') {
-      return res.error('Only pending withdrawals can be rejected');
+    // Allow rejecting stuck PROCESSING (failed mid-approve) as well as PENDING
+    if (!['PENDING', 'PROCESSING'].includes(withdrawal.status)) {
+      return res.error('Only pending/processing withdrawals can be rejected');
     }
 
     const updated = await Withdrawal.updateStatus(withdrawal.id, {
@@ -232,7 +272,7 @@ exports.adminRejectWithdrawal = async (req, res) => {
       action: 'WITHDRAWAL_REJECTED',
       entityType: 'withdrawal',
       entityId: withdrawal.id,
-      meta: { note: req.body.note }
+      meta: { note: req.body.note, previous_status: withdrawal.status }
     });
 
     try {

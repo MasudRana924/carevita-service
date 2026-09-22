@@ -53,7 +53,8 @@ exports.createProfile = async (req, res) => {
   try {
     const {
       bio, experience_years, service_areas, hourly_rate, education,
-      blood_group, date_of_birth, gender, district, thana
+      blood_group, date_of_birth, gender, district, thana,
+      provider_type, credential_number, credential_type, specialization
     } = req.body;
 
     if (!district || !thana) {
@@ -66,6 +67,10 @@ exports.createProfile = async (req, res) => {
     }
 
     const profilePhoto = req.file ? req.file.path : null;
+    const type = String(provider_type || 'CAREGIVER').toUpperCase() === 'NURSE' ? 'NURSE' : 'CAREGIVER';
+    if (type === 'NURSE' && !credential_number) {
+      return res.error('credential_number is required for NURSE profiles');
+    }
 
     const profile = await createCaregiverProfile({
       user_id: req.user.id,
@@ -79,7 +84,11 @@ exports.createProfile = async (req, res) => {
       profile_photo: profilePhoto,
       gender,
       district: String(district).trim(),
-      thana: String(thana).trim()
+      thana: String(thana).trim(),
+      provider_type: type,
+      credential_number,
+      credential_type,
+      specialization
     });
 
     const synced = await syncProfileFromUser(req.user.id);

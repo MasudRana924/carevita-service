@@ -6,36 +6,40 @@ const options = {
     openapi: '3.0.0',
     info: {
       title: 'CareMate API',
-      version: '2.0.0',
+      version: '3.0.0',
       description: `
-CareMate core API — USER / CAREGIVER / ADMIN.
+CareMate v3 API — USER / CAREGIVER (incl. NURSE subtype) / ADMIN.
 
-**Auth:** Bearer JWT after login / verify-otp.
+**Auth:** Bearer JWT after login / verify-otp. Access ~15m; refresh ~30d with rotation.
+Public register roles: \`USER\` | \`CAREGIVER\` only (ADMIN rejected).
+Logout: \`POST /auth/logout\` with \`refreshToken\`.
 
-**Push:** Register FCM token at \`POST /notifications/tokens\`.
-Booking create → caregiver push + inbox.
-Booking accept → user push + inbox (\`booking_id\` in payload).
-Payment success → caregiver push (\`PAYMENT_RECEIVED\` / start booking) + wallet credit (5% platform / 95% caregiver).
-Caregiver start → user push (\`SERVICE_STARTED\`).
-1 hour before start → caregiver push (\`SERVICE_START_REMINDER\`).
-Caregiver end → user push (\`SERVICE_COMPLETED\` / open booking details; review modal if \`can_review\`) + caregiver wallet settle (\`EARNING_SETTLED\`).
-User star review → \`POST /bookings/{id}/review\` \`{ rating: 1-5 }\` (no message).
+**NURSE:** \`users.role\` stays \`CAREGIVER\`; set \`caregiver_profiles.provider_type=NURSE\` + credentials.
+Admin reviews via \`POST /admin/caregivers/{id}/credentials\`.
+
+**Booking journey:** SEARCHING_PROVIDER → PROVIDER_ASSIGNED → PROVIDER_ACCEPTED → PAYMENT_PAID → SERVICE_IN_PROGRESS → SERVICE_COMPLETED.
+
+**Push:** Register FCM at \`POST /notifications/tokens\`. Inbox is durable backup.
+**Safety:** \`POST /bookings/{id}/safety-incident\` freezes payout (not emergency dispatch).
+**Live location:** Requires \`consent: true\` while SERVICE_IN_PROGRESS.
+**Health:** \`/health/live\` and \`/health/ready\` for deploy probes.
       `
     },
     servers: [{ url: '/api/v1', description: 'Current server' }],
     tags: [
-      { name: 'Health', description: 'Health check' },
-      { name: 'Auth', description: 'Register, login, OTP, profile' },
+      { name: 'Health', description: 'Liveness / readiness' },
+      { name: 'Auth', description: 'Register, OTP, login, refresh, logout, profile' },
       { name: 'User', description: 'User profile & bookings' },
-      { name: 'Family Members', description: 'Family member CRUD' },
-      { name: 'Caregiver', description: 'Caregiver profile, eKYC, search, accept/reject' },
-      { name: 'eKYC', description: 'Didit identity verification for caregivers' },
-      { name: 'Bookings', description: 'Book caregiver, list, details' },
-      { name: 'Payments', description: 'bKash Pay Now (create / execute)' },
+      { name: 'Family Members', description: 'Family member CRUD + PHI' },
+      { name: 'Caregiver', description: 'Profile (CAREGIVER/NURSE), eKYC, wallet, accept/start/location' },
+      { name: 'eKYC', description: 'Didit identity verification' },
+      { name: 'Bookings', description: 'Create, pay gate, review, cancel, safety' },
+      { name: 'Payments', description: 'bKash create / execute / callback / refund' },
       { name: 'Hospitals', description: 'Hospital list' },
-      { name: 'Inbox', description: 'Push notification inbox' },
-      { name: 'Notifications', description: 'FCM device tokens' },
-      { name: 'Admin', description: 'Users, caregivers, hospitals management' }
+      { name: 'Inbox', description: 'In-app notification inbox' },
+      { name: 'Notifications', description: 'FCM device tokens & preferences' },
+      { name: 'Privacy Policy', description: 'Public product privacy policy (USER / CAREGIVER registration)' },
+      { name: 'Admin', description: 'Users, caregivers, credentials, safety, privacy policy, withdrawals, audit' }
     ],
     components: {
       securitySchemes: {
