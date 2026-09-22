@@ -115,10 +115,23 @@
  *       200:
  *         description: Rejected
  *
+ * /bookings/{id}/live-location:
+ *   get:
+ *     tags: [Bookings]
+ *     summary: Get caregiver last live GPS for a booking (USER/CAREGIVER)
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       200:
+ *         description: Latest location; is_active false after service ends
+ *
  * /bookings/{id}/start:
  *   post:
  *     tags: [Bookings]
- *     summary: Start service (caregiver, after PAYMENT_PAID)
+ *     summary: Deprecated path note — use POST /caregiver/bookings/{id}/start with lat/lng
  *     parameters:
  *       - in: path
  *         name: id

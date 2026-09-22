@@ -386,7 +386,7 @@ const cancelBooking = async (booking, user, reason) => {
   return { updated, policy, refund };
 };
 
-const startBooking = async (bookingId, userId) => {
+const startBooking = async (bookingId, userId, location = {}) => {
   const booking = await findById(bookingId);
   if (!booking) {
     const error = new Error('Booking not found');
@@ -405,15 +405,47 @@ const startBooking = async (bookingId, userId) => {
     throw error;
   }
 
+  const latitude = location.latitude ?? location.lat;
+  const longitude = location.longitude ?? location.lng ?? location.long;
+  if (latitude == null || longitude == null || latitude === '' || longitude === '') {
+    const error = new Error('latitude and longitude are required to start service (for live tracking)');
+    error.statusCode = 400;
+    throw error;
+  }
+
   assertTransition(booking.status, STATUSES.SERVICE_IN_PROGRESS);
   const oldStatus = booking.status;
   await startService(booking.id);
-  await addStatusHistory(booking.id, oldStatus, 'SERVICE_IN_PROGRESS', userId, 'Caregiver started service');
+  await addStatusHistory(
+    booking.id,
+    oldStatus,
+    'SERVICE_IN_PROGRESS',
+    userId,
+    'Caregiver started service',
+    Number(latitude),
+    Number(longitude)
+  );
+
+  const liveTrackingService = require('./liveTrackingService');
+  const { emitLocation } = require('../realtime/socket');
+  let liveLocation = null;
+  try {
+    liveLocation = await liveTrackingService.publishLocation(booking.id, userId, {
+      latitude,
+      longitude,
+      accuracy: location.accuracy,
+      heading: location.heading,
+      speed: location.speed
+    });
+    emitLocation(booking.id, liveLocation);
+  } catch (locErr) {
+    console.error('Initial live location save failed:', locErr.message);
+  }
 
   await notifySafely({
     userId: booking.user_id,
     title: 'Service Started',
-    body: `Caregiver started booking ${booking.booking_number}.`,
+    body: `Caregiver started booking ${booking.booking_number}. Live tracking is available.`,
     type: 'SERVICE_STARTED',
     bookingId: booking.id,
     referenceId: booking.id,
@@ -421,12 +453,14 @@ const startBooking = async (bookingId, userId) => {
     extraData: {
       booking_number: booking.booking_number,
       status: 'SERVICE_IN_PROGRESS',
-      action: 'OPEN_BOOKING',
-      screen: 'booking_details'
+      action: 'OPEN_LIVE_TRACKING',
+      screen: 'live_tracking',
+      live_tracking: 'true'
     }
   }, 'Notify user on start failed');
 
-  return withJourney(await findById(booking.id), userId);
+  const payload = await withJourney(await findById(booking.id), userId);
+  return { ...payload, live_location: liveLocation };
 };
 
 const completeBooking = async (bookingId, userId) => {
@@ -454,6 +488,15 @@ const completeBooking = async (bookingId, userId) => {
   const settled = await settleEarning(booking.id);
   await addStatusHistory(booking.id, oldStatus, 'SERVICE_COMPLETED', userId, 'Caregiver ended service');
 
+  const liveTrackingService = require('./liveTrackingService');
+  const { emitTrackingEnded } = require('../realtime/socket');
+  try {
+    await liveTrackingService.stopTracking(booking.id);
+    emitTrackingEnded(booking.id);
+  } catch (trackErr) {
+    console.error('Stop live tracking failed:', trackErr.message);
+  }
+
   if (booking.provider_type === 'CAREGIVER' && booking.provider_id) {
     try {
       await incrementCompletedBookings(booking.provider_id);
@@ -477,7 +520,8 @@ const completeBooking = async (bookingId, userId) => {
       status: 'SERVICE_COMPLETED',
       action: 'OPEN_BOOKING',
       screen: 'booking_details',
-      show_review: 'true'
+      show_review: 'true',
+      live_tracking: 'false'
     }
   }, 'Notify user on complete failed');
 

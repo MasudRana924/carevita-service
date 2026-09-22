@@ -108,7 +108,7 @@ exports.cancelBooking = asyncHandler(async (req, res) => {
 
 exports.startBooking = asyncHandler(async (req, res) => {
   try {
-    const payload = await bookingService.startBooking(req.params.id, req.user.id);
+    const payload = await bookingService.startBooking(req.params.id, req.user.id, req.body || {});
     return res.success(payload, 'Service started');
   } catch (error) {
     return mapServiceError(res, error, 'Failed to start service');
@@ -121,6 +121,28 @@ exports.completeBooking = asyncHandler(async (req, res) => {
     return res.success(payload, 'Service completed');
   } catch (error) {
     return mapServiceError(res, error, 'Failed to complete service');
+  }
+});
+
+exports.updateLiveLocation = asyncHandler(async (req, res) => {
+  try {
+    const liveTrackingService = require('../services/liveTrackingService');
+    const { emitLocation } = require('../realtime/socket');
+    const location = await liveTrackingService.publishLocation(req.params.id, req.user.id, req.body || {});
+    emitLocation(req.params.id, location);
+    return res.success(location, 'Live location updated');
+  } catch (error) {
+    return mapServiceError(res, error, 'Failed to update live location');
+  }
+});
+
+exports.getLiveLocation = asyncHandler(async (req, res) => {
+  try {
+    const liveTrackingService = require('../services/liveTrackingService');
+    const location = await liveTrackingService.getLiveLocation(req.params.id, req.user);
+    return res.success(location, 'Live location fetched');
+  } catch (error) {
+    return mapServiceError(res, error, 'Failed to fetch live location');
   }
 });
 

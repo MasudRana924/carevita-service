@@ -203,20 +203,59 @@
  * /caregiver/bookings/{id}/start:
  *   post:
  *     tags: [Caregiver]
- *     summary: Start assigned booking (after PAYMENT_PAID)
+ *     summary: Start assigned booking with GPS (enables live tracking)
  *     parameters:
  *       - in: path
  *         name: id
  *         required: true
  *         schema: { type: string, format: uuid }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [latitude, longitude]
+ *             properties:
+ *               latitude: { type: number, example: 23.8103 }
+ *               longitude: { type: number, example: 90.4125 }
+ *               accuracy: { type: number }
+ *               heading: { type: number }
+ *               speed: { type: number }
  *     responses:
  *       200:
- *         description: Service started
+ *         description: Service started; live tracking active
+ *
+ * /caregiver/bookings/{id}/location:
+ *   post:
+ *     tags: [Caregiver]
+ *     summary: Push caregiver live GPS while SERVICE_IN_PROGRESS (REST fallback)
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [latitude, longitude]
+ *             properties:
+ *               latitude: { type: number }
+ *               longitude: { type: number }
+ *               accuracy: { type: number }
+ *               heading: { type: number }
+ *               speed: { type: number }
+ *     responses:
+ *       200:
+ *         description: Location updated and broadcast over Socket.IO
  *
  * /caregiver/bookings/{id}/complete:
  *   post:
  *     tags: [Caregiver]
- *     summary: End assigned booking (after SERVICE_IN_PROGRESS)
+ *     summary: End assigned booking (stops live tracking)
  *     parameters:
  *       - in: path
  *         name: id
@@ -224,7 +263,7 @@
  *         schema: { type: string, format: uuid }
  *     responses:
  *       200:
- *         description: Service completed; earning settled to wallet
+ *         description: Service completed; earning settled to wallet; tracking ended
  *
  * /caregiver/{id}:
  *   get:

@@ -27,6 +27,7 @@ router.post('/bookings/:id/accept', authenticate, authorize('CAREGIVER'), bookin
 router.post('/bookings/:id/reject', authenticate, authorize('CAREGIVER'), bookingController.rejectBooking);
 router.post('/bookings/:id/start', authenticate, authorize('CAREGIVER'), bookingController.startBooking);
 router.post('/bookings/:id/complete', authenticate, authorize('CAREGIVER'), bookingController.completeBooking);
+router.post('/bookings/:id/location', authenticate, authorize('CAREGIVER'), bookingController.updateLiveLocation);
 router.get('/:id/availability', availabilityController.getPublicAvailability);
 router.get('/:id', caregiverController.viewCaregiverProfile);
 

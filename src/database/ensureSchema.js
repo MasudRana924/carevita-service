@@ -53,6 +53,26 @@ const ensureFamilyMembersSchema = async () => {
   }
 
   await pool.query('ALTER TABLE bookings ADD COLUMN IF NOT EXISTS offer_expires_at TIMESTAMP');
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS booking_live_locations (
+      booking_id UUID PRIMARY KEY REFERENCES bookings(id) ON DELETE CASCADE,
+      caregiver_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      latitude DECIMAL(10, 8) NOT NULL,
+      longitude DECIMAL(11, 8) NOT NULL,
+      accuracy DECIMAL(10, 2),
+      heading DECIMAL(10, 2),
+      speed DECIMAL(10, 2),
+      is_active BOOLEAN NOT NULL DEFAULT true,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_booking_live_locations_active
+    ON booking_live_locations (is_active)
+    WHERE is_active = true
+  `);
 };
 
 module.exports = { ensureFamilyMembersSchema };

@@ -123,6 +123,9 @@ const journeyFlags = (booking, { userId, asProvider, review = null }) => {
   return {
     can_start: !!asProvider && status === STATUSES.PAYMENT_PAID,
     can_complete: !!asProvider && status === STATUSES.SERVICE_IN_PROGRESS,
+    can_live_track: isOwner && status === STATUSES.SERVICE_IN_PROGRESS,
+    live_tracking_active: status === STATUSES.SERVICE_IN_PROGRESS,
+    can_publish_location: !!asProvider && status === STATUSES.SERVICE_IN_PROGRESS,
     can_review: isOwner && status === STATUSES.SERVICE_COMPLETED && !review,
     can_cancel: isOwner
       ? ![STATUSES.SERVICE_IN_PROGRESS, ...TERMINAL_STATUSES].includes(status)

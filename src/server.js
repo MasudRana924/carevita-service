@@ -1,4 +1,5 @@
 require('./config/loadEnv');
+const http = require('http');
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -14,8 +15,10 @@ const pool = require('./config/database');
 const { ensureFamilyMembersSchema } = require('./database/ensureSchema');
 const { startStartReminderJob } = require('./services/startReminderJob');
 const { startAcceptOfferTimeoutJob } = require('./services/acceptOfferTimeoutJob');
+const { initSocket } = require('./realtime/socket');
 
 const app = express();
+const server = http.createServer(app);
 const PORT = process.env.PORT || 8000;
 
 // Render / proxies set X-Forwarded-For; without this, rate-limit blocks all /api routes
@@ -88,7 +91,8 @@ app.use('/api/v1', routes);
 app.get('/', (req, res) => {
   res.success({
     name: 'CareMate API Server',
-    version: '1.0.0'
+    version: '1.0.0',
+    socket: '/socket.io'
   }, 'CareMate API Server');
 });
 
@@ -99,11 +103,14 @@ app.use((req, res) => {
 // Error handling middleware
 app.use(errorHandler);
 
+initSocket(server);
+
 // Bind 0.0.0.0 so Render health checks can reach the service
-app.listen(PORT, '0.0.0.0', async () => {
+server.listen(PORT, '0.0.0.0', async () => {
   console.log(`CareMate API Server running on port ${PORT}`);
   console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
   console.log(`API Base URL: http://localhost:${PORT}/api/v1`);
+  console.log(`Socket.IO: http://localhost:${PORT}/socket.io`);
   console.log(`Swagger Docs: http://localhost:${PORT}/api-docs`);
 
   try {
