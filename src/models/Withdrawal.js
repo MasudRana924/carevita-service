@@ -106,10 +106,26 @@ const hasPending = async (userId) => {
   const result = await pool.query(
     `
     SELECT 1 FROM withdrawals
-    WHERE caregiver_user_id = $1 AND status IN ('PENDING', 'APPROVED')
+    WHERE caregiver_user_id = $1 AND status IN ('PENDING', 'APPROVED', 'PROCESSING')
     LIMIT 1
     `,
     [userId]
+  );
+  return result.rowCount > 0;
+};
+
+/** True if caregiver has any booking with payout frozen (e.g. open safety incident). */
+const hasPayoutFreeze = async (caregiverUserId) => {
+  const result = await pool.query(
+    `
+    SELECT 1
+    FROM bookings b
+    JOIN caregiver_profiles cp ON cp.id = b.provider_id AND b.provider_type = 'CAREGIVER'
+    WHERE cp.user_id = $1
+      AND COALESCE(b.payout_frozen, false) = true
+    LIMIT 1
+    `,
+    [caregiverUserId]
   );
   return result.rowCount > 0;
 };
@@ -121,5 +137,6 @@ module.exports = {
   countByUser,
   listAll,
   updateStatus,
-  hasPending
+  hasPending,
+  hasPayoutFreeze
 };

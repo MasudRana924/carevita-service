@@ -4,22 +4,32 @@ const createCaregiverProfile = async (profileData) => {
   const {
     user_id, bio, experience_years, service_areas, hourly_rate,
     education, blood_group, date_of_birth, profile_photo, gender,
-    district, thana
+    district, thana, provider_type = 'CAREGIVER',
+    credential_number, credential_type, specialization
   } = profileData;
+
+  const type = String(provider_type || 'CAREGIVER').toUpperCase() === 'NURSE'
+    ? 'NURSE'
+    : 'CAREGIVER';
 
   const query = `
     INSERT INTO caregiver_profiles (
       user_id, bio, experience_years, service_areas, hourly_rate,
       education, blood_group, date_of_birth, profile_photo, gender,
-      district, thana, ekyc_status
+      district, thana, ekyc_status, provider_type,
+      credential_number, credential_type, specialization, credential_status
     )
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, false)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, false, $13, $14, $15, $16, $17)
     RETURNING *
   `;
   const values = [
     user_id, bio, experience_years, service_areas, hourly_rate,
     education, blood_group, date_of_birth, profile_photo, gender,
-    district, thana
+    district, thana, type,
+    credential_number || null,
+    credential_type || null,
+    specialization || null,
+    type === 'NURSE' ? 'PENDING' : 'NOT_REQUIRED'
   ];
 
   const result = await pool.query(query, values);
@@ -67,7 +77,10 @@ const updateCaregiverProfile = async (id, updateData) => {
     'profile_photo',
     'gender',
     'district',
-    'thana'
+    'thana',
+    'credential_number',
+    'credential_type',
+    'specialization'
   ];
 
   const sets = [];
@@ -109,6 +122,41 @@ const updateVerificationStatus = async (id, status, note) => {
 
   const result = await pool.query(query, values);
   return result.rows[0];
+};
+
+const updateCredentialStatus = async (id, { credential_status, credential_note, credential_expires_at }) => {
+  const result = await pool.query(
+    `
+    UPDATE caregiver_profiles
+    SET credential_status = COALESCE($1, credential_status),
+        credential_note = COALESCE($2, credential_note),
+        credential_expires_at = COALESCE($3, credential_expires_at),
+        updated_at = CURRENT_TIMESTAMP
+    WHERE id = $4
+    RETURNING *
+    `,
+    [credential_status || null, credential_note || null, credential_expires_at || null, id]
+  );
+  return result.rows[0];
+};
+
+/** Eligible for marketplace offers: not suspended, and nurses need verified non-expired credential. */
+const isEligibleForBooking = (profile) => {
+  if (!profile) return false;
+  if (profile.is_available === false) return false;
+  const vs = String(profile.verification_status || 'PENDING').toUpperCase();
+  if (vs === 'SUSPENDED' || vs === 'REJECTED') return false;
+
+  const type = String(profile.provider_type || 'CAREGIVER').toUpperCase();
+  if (type === 'NURSE') {
+    const cs = String(profile.credential_status || '').toUpperCase();
+    if (cs !== 'VERIFIED') return false;
+    if (profile.credential_expires_at) {
+      const exp = new Date(profile.credential_expires_at);
+      if (!Number.isNaN(exp.getTime()) && exp.getTime() < Date.now()) return false;
+    }
+  }
+  return true;
 };
 
 const buildCaregiverSearch = (filters = {}) => {
@@ -272,6 +320,8 @@ module.exports = {
   updateCaregiverProfile,
   updateCaregiverEkyc,
   updateVerificationStatus,
+  updateCredentialStatus,
+  isEligibleForBooking,
   searchCaregivers,
   updateRating,
   incrementCompletedBookings

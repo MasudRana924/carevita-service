@@ -374,8 +374,19 @@ exports.refundStatus = async (req, res) => {
 exports.bkashCallback = async (req, res) => {
   try {
     const secret = process.env.BKASH_CALLBACK_SECRET;
-    if (secret && req.get('X-Callback-Secret') !== secret && req.query.secret !== secret) {
-      return res.unauthorized('Invalid callback secret');
+    const provided = req.get('X-Callback-Secret') || req.query.secret;
+    const isProd = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
+
+    if (isProd || secret) {
+      if (!secret || provided !== secret) {
+        const { writeAudit } = require('../utils/audit');
+        await writeAudit({
+          action: 'BKASH_CALLBACK_UNAUTHORIZED',
+          entityType: 'payment',
+          meta: { has_secret_configured: Boolean(secret), requestId: req.requestId }
+        });
+        return res.unauthorized('Invalid callback secret');
+      }
     }
 
     const paymentID = req.body.paymentID || req.body.paymentId;
@@ -397,13 +408,35 @@ exports.bkashCallback = async (req, res) => {
       txnStatus === 'COMPLETED' ||
       bkash?.statusCode === '0000';
 
-    return res.success({
+    if (!success) {
+      return res.success({
+        payment,
+        bkash,
+        completed: false
+      }, 'Payment not completed yet');
+    }
+
+    const booking = await findById(payment.booking_id);
+    if (!booking) return res.notFound('Booking not found');
+
+    const result = await completeSuccessfulPayment({
       payment,
+      booking,
+      userId: payment.user_id,
+      bkashRes: { ...bkash, amount: bkash.amount || payment.amount, paymentID }
+    });
+
+    return res.success({
+      payment: result.payment,
+      booking: result.booking,
       bkash,
-      completed: success
-    }, success ? 'Payment confirmed by callback' : 'Payment not completed yet');
+      completed: true
+    }, 'Payment confirmed by callback');
   } catch (error) {
     console.error('bKash callback error:', error.message);
+    if (error.statusCode === 400) {
+      return res.error(error.message, [], 400, ERROR_CODES.PAYMENT_FAILED);
+    }
     return res.serverError('Callback failed');
   }
 };

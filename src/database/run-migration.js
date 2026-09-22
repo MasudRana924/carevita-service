@@ -1,3 +1,9 @@
+/**
+ * @deprecated Prefer `npm run migrate` (base schema) then `npm run migrate:sql`
+ * (versioned patches tracked in schema_migrations). This script re-applies a
+ * fixed file list without schema_migrations tracking and can drift from the
+ * canonical migrator.
+ */
 const pool = require('../config/database');
 const fs = require('fs');
 const path = require('path');

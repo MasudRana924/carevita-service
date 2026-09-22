@@ -88,7 +88,16 @@ const findNextCaregiver = async (booking, extraExclude = []) => {
     LEFT JOIN hospitals h ON h.id = $4::uuid
     WHERE cp.is_available = true
       AND COALESCE(cp.verification_status, 'APPROVED') <> 'SUSPENDED'
+      AND COALESCE(cp.verification_status, 'APPROVED') <> 'REJECTED'
       AND u.status = 'active'
+      AND COALESCE(cp.provider_type, 'CAREGIVER') = COALESCE($5::text, 'CAREGIVER')
+      AND (
+        COALESCE(cp.provider_type, 'CAREGIVER') <> 'NURSE'
+        OR (
+          COALESCE(cp.credential_status, '') = 'VERIFIED'
+          AND (cp.credential_expires_at IS NULL OR cp.credential_expires_at >= CURRENT_DATE)
+        )
+      )
       AND ($1::uuid[] IS NULL OR NOT (cp.id = ANY($1::uuid[])))
       AND (
         COALESCE(h.district, $2::text) IS NULL
@@ -99,21 +108,24 @@ const findNextCaregiver = async (booking, extraExclude = []) => {
         )
       )
     ORDER BY
+      cp.rating DESC NULLS LAST,
+      cp.completed_bookings DESC NULLS LAST,
       CASE
         WHEN h.district IS NOT NULL AND cp.district ILIKE h.district THEN 0
         WHEN $2::text IS NOT NULL AND cp.district ILIKE $2 THEN 1
         WHEN $3::text IS NOT NULL AND cp.thana ILIKE $3 THEN 2
         ELSE 3
-      END,
-      cp.rating DESC NULLS LAST,
-      cp.completed_bookings DESC NULLS LAST
+      END
     LIMIT 20
     `,
     [
       exclude.length ? exclude : null,
       districtHint,
       thanaHint,
-      booking.hospital_id || null
+      booking.hospital_id || null,
+      booking.requested_provider_type
+        || booking.money_rules_snapshot?.requested_provider_type
+        || 'CAREGIVER'
     ]
   );
 

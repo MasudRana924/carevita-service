@@ -1,4 +1,7 @@
 require('./config/loadEnv');
+const { assertProductionConfig } = require('./config/validateEnv');
+assertProductionConfig();
+
 const http = require('http');
 const express = require('express');
 const cors = require('cors');
@@ -26,12 +29,31 @@ app.set('trust proxy', 1);
 
 initFirebase();
 
-// Security middleware (CSP relaxed so Swagger UI assets load)
-app.use(helmet({
-  contentSecurityPolicy: false,
-  crossOriginEmbedderPolicy: false,
-  crossOriginResourcePolicy: { policy: 'cross-origin' }
-}));
+// Security middleware — keep CSP enabled for API; Swagger mounts its own relaxed policy below
+const isProd = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api-docs') || req.path === '/api-docs.json') {
+    return helmet({
+      contentSecurityPolicy: false,
+      crossOriginEmbedderPolicy: false,
+      crossOriginResourcePolicy: { policy: 'cross-origin' }
+    })(req, res, next);
+  }
+  return helmet({
+    contentSecurityPolicy: isProd
+      ? {
+          useDefaults: true,
+          directives: {
+            defaultSrc: ["'none'"],
+            frameAncestors: ["'none'"]
+          }
+        }
+      : false,
+    crossOriginEmbedderPolicy: false,
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
+    hsts: isProd ? { maxAge: 15552000, includeSubDomains: true } : false
+  })(req, res, next);
+});
 
 // CORS — origin:true reflects the request Origin (works with credentials)
 // Note: origin:'*' + credentials:true is invalid and browsers block it

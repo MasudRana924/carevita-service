@@ -3,7 +3,7 @@
  * /health:
  *   get:
  *     tags: [Health]
- *     summary: API health check
+ *     summary: API health check (compat)
  *     security: []
  *     responses:
  *       200:
@@ -12,14 +12,35 @@
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/SuccessResponse'
+ *
+ * /health/live:
+ *   get:
+ *     tags: [Health]
+ *     summary: Liveness probe (process up)
+ *     security: []
+ *     responses:
+ *       200:
+ *         description: Process is alive
+ *         content:
+ *           application/json:
  *             example:
- *               success: true
- *               statusCode: 200
- *               message: CareMate API is running
- *               data:
- *                 status: ok
- *               meta:
- *                 requestId: 6f1d2c3a-1234-4abc-9def-1234567890ab
- *                 timestamp: 2026-09-18T00:00:00.000Z
- *                 path: /api/v1/health
+ *               status: live
+ *               timestamp: 2026-09-22T00:00:00.000Z
+ *
+ * /health/ready:
+ *   get:
+ *     tags: [Health]
+ *     summary: Readiness probe (database reachable)
+ *     security: []
+ *     responses:
+ *       200:
+ *         description: Ready to accept traffic
+ *         content:
+ *           application/json:
+ *             example:
+ *               status: ready
+ *               database: ok
+ *               timestamp: 2026-09-22T00:00:00.000Z
+ *       503:
+ *         description: Database not ready
  */

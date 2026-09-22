@@ -78,10 +78,12 @@
  *               name: { type: string, example: Rahim Ahmed }
  *               email: { type: string, format: email }
  *               password: { type: string, format: password, minLength: 6 }
- *               role: { type: string, example: USER, description: USER | CAREGIVER | ADMIN }
+ *               role: { type: string, enum: [USER, CAREGIVER], example: USER, description: Public register allows USER or CAREGIVER only (ADMIN rejected) }
  *     responses:
  *       201:
  *         description: Registered successfully
+ *       400:
+ *         description: Invalid role or validation error
  *       409:
  *         description: Email already exists
  *
@@ -109,7 +111,10 @@
  * /auth/refresh-token:
  *   post:
  *     tags: [Auth]
- *     summary: Refresh access token
+ *     summary: Rotate refresh token and issue new access token
+ *     description: >
+ *       Refresh tokens are stored server-side. Each use issues a new refresh token
+ *       and revokes the old one. Reusing a revoked token invalidates the whole session family.
  *     security: []
  *     requestBody:
  *       required: true
@@ -122,9 +127,28 @@
  *               refreshToken: { type: string }
  *     responses:
  *       200:
- *         description: New access token
+ *         description: New access + refresh tokens
  *       401:
- *         description: Invalid refresh token
+ *         description: Invalid or reused refresh token
+ *
+ * /auth/logout:
+ *   post:
+ *     tags: [Auth]
+ *     summary: Logout — revoke refresh token session family
+ *     security: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [refreshToken]
+ *             properties:
+ *               refreshToken: { type: string }
+ *               refresh_token: { type: string, description: Alias for refreshToken }
+ *     responses:
+ *       200:
+ *         description: Session revoked
  *
  * /auth/profile:
  *   get:

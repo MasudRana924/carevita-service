@@ -87,6 +87,20 @@ const presentLocation = (row, booking = null) => {
 
 const publishLocation = async (bookingId, caregiverUserId, payload = {}) => {
   const booking = await assertCanPublish(bookingId, caregiverUserId);
+  const consent =
+    payload.consent === true ||
+    payload.consent_granted === true ||
+    payload.location_consent === true;
+
+  if (!consent) {
+    const existing = await BookingLiveLocation.getByBookingId(bookingId);
+    if (!existing?.consent_granted) {
+      const error = new Error('Live location requires explicit consent (consent: true)');
+      error.statusCode = 400;
+      throw error;
+    }
+  }
+
   const latitude = parseCoord(payload.latitude ?? payload.lat, 'latitude');
   const longitude = parseCoord(payload.longitude ?? payload.lng ?? payload.long, 'longitude');
 
@@ -109,7 +123,8 @@ const publishLocation = async (bookingId, caregiverUserId, payload = {}) => {
     accuracy: payload.accuracy != null ? Number(payload.accuracy) : null,
     heading: payload.heading != null ? Number(payload.heading) : null,
     speed: payload.speed != null ? Number(payload.speed) : null,
-    isActive: true
+    isActive: true,
+    consentGranted: true
   });
 
   return presentLocation(row, booking);

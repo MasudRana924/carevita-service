@@ -176,3 +176,17 @@ exports.getBookingDisputes = asyncHandler(async (req, res) => {
   const items = await Dispute.listByBookingId(booking.id);
   return res.success(items, 'Disputes fetched successfully');
 });
+
+exports.reportSafetyIncident = asyncHandler(async (req, res) => {
+  try {
+    const { reportSafetyIncident } = require('../services/safetyIncidentService');
+    const result = await reportSafetyIncident({
+      bookingId: req.params.id,
+      user: req.user,
+      description: req.body?.description || req.body?.details
+    });
+    return res.created(result, 'Safety incident reported');
+  } catch (error) {
+    return mapServiceError(res, error, 'Failed to report safety incident');
+  }
+});

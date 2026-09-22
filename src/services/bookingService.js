@@ -10,6 +10,7 @@ const {
   settleEarning,
   cancel
 } = require('../models/Booking');
+const pool = require('../config/database');
 const { findByUserIdAndId } = require('../models/FamilyMember');
 const {
   getCaregiverProfileByUserId,
@@ -87,7 +88,8 @@ const createUserBooking = async (userId, body) => {
     patient_requirements,
     notes,
     service_type = 'HOSPITAL_ASSISTANCE',
-    auto_assign = true
+    auto_assign = true,
+    requested_provider_type = 'CAREGIVER'
   } = body;
 
   if (!family_member_id || !booking_date || !start_time || !duration_hours) {
@@ -108,6 +110,10 @@ const createUserBooking = async (userId, body) => {
   end_time.setHours(end_time.getHours() + parseInt(duration_hours, 10));
   const endTimeStr = end_time.toTimeString().slice(0, 5);
 
+  const providerSubtype = String(requested_provider_type || 'CAREGIVER').toUpperCase() === 'NURSE'
+    ? 'NURSE'
+    : 'CAREGIVER';
+
   let caregiver = null;
   if (provider_id) {
     caregiver = await getCaregiverProfileById(provider_id);
@@ -117,6 +123,18 @@ const createUserBooking = async (userId, body) => {
       error.code = 'NOT_FOUND';
       throw error;
     }
+    const { isEligibleForBooking } = require('../models/CaregiverProfile');
+    if (!isEligibleForBooking(caregiver)) {
+      const error = new Error('Selected provider is not eligible for booking');
+      error.statusCode = 409;
+      error.code = 'CONFLICT';
+      throw error;
+    }
+    if (String(caregiver.provider_type || 'CAREGIVER').toUpperCase() !== providerSubtype) {
+      const error = new Error(`Selected provider is not a ${providerSubtype}`);
+      error.statusCode = 409;
+      throw error;
+    }
     await assertCaregiverFree(caregiver, {
       booking_date,
       start_time,
@@ -124,11 +142,20 @@ const createUserBooking = async (userId, body) => {
     });
   }
 
+  const { PLATFORM_FEE_RATE, CANCEL_FULL_REFUND_HOURS, CANCEL_PARTIAL_REFUND_HOURS, CANCEL_PARTIAL_REFUND_PERCENT } = require('../config/platform');
   const price = calculateBookingPrice({
     serviceType: service_type,
     durationHours: duration_hours,
     hourlyRate: caregiver?.hourly_rate
   });
+
+  const money_rules_snapshot = {
+    PLATFORM_FEE_RATE,
+    CANCEL_FULL_REFUND_HOURS,
+    CANCEL_PARTIAL_REFUND_HOURS,
+    CANCEL_PARTIAL_REFUND_PERCENT,
+    captured_at: new Date().toISOString()
+  };
 
   const draft = {
     user_id: userId,
@@ -145,10 +172,33 @@ const createUserBooking = async (userId, body) => {
     notes,
     discount: 0,
     ...price,
+    money_rules_snapshot,
+    requested_provider_type: providerSubtype,
     status: caregiver ? STATUSES.PROVIDER_ASSIGNED : STATUSES.SEARCHING_PROVIDER
   };
 
   let booking = await createBooking(draft);
+
+  // Persist subtype hint for assignment when column/json available
+  try {
+    await pool.query(
+      `
+      UPDATE bookings
+      SET money_rules_snapshot = COALESCE(money_rules_snapshot, '{}'::jsonb) || $2::jsonb,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = $1
+      `,
+      [
+        booking.id,
+        JSON.stringify({
+          ...money_rules_snapshot,
+          requested_provider_type: providerSubtype
+        })
+      ]
+    );
+  } catch (e) {
+    // Column may not exist until migrate:sql — pricing columns still snapshotted on row
+  }
 
   // Auto-offer when no preferred caregiver (or preferred missing / auto_assign)
   if (!caregiver && auto_assign !== false) {
@@ -156,7 +206,8 @@ const createUserBooking = async (userId, body) => {
       ...booking,
       family_member_district: familyMember.district,
       family_member_thana: familyMember.thana,
-      hospital_id
+      hospital_id,
+      requested_provider_type: providerSubtype
     };
     const next = await findNextCaregiver(matchContext);
     if (next) {
@@ -199,42 +250,96 @@ const createUserBooking = async (userId, body) => {
 };
 
 const acceptBooking = async (bookingId, userId) => {
-  const booking = await findById(bookingId);
-  if (!booking) {
-    const error = new Error('Booking not found');
+  const caregiver = await getCaregiverProfileByUserId(userId);
+  if (!caregiver) {
+    const error = new Error('Caregiver profile not found');
     error.statusCode = 404;
     error.code = 'NOT_FOUND';
     throw error;
   }
-  if (!(await isAssignedCaregiver(booking, userId))) {
-    const error = new Error('Access denied — this booking is not assigned to you');
-    error.statusCode = 403;
-    throw error;
-  }
-  if (![STATUSES.SEARCHING_PROVIDER, STATUSES.PROVIDER_ASSIGNED].includes(booking.status)) {
-    const error = new Error('Booking cannot be accepted in current status');
-    error.statusCode = 400;
-    throw error;
+
+  const client = await pool.connect();
+  let updated;
+  let oldStatus;
+  try {
+    await client.query('BEGIN');
+    const locked = await client.query(
+      `SELECT * FROM bookings WHERE id = $1 FOR UPDATE`,
+      [bookingId]
+    );
+    const booking = locked.rows[0];
+    if (!booking) {
+      const error = new Error('Booking not found');
+      error.statusCode = 404;
+      error.code = 'NOT_FOUND';
+      throw error;
+    }
+    if (booking.provider_type !== 'CAREGIVER' || booking.provider_id !== caregiver.id) {
+      const error = new Error('Access denied — this booking is not assigned to you');
+      error.statusCode = 403;
+      throw error;
+    }
+    if (![STATUSES.SEARCHING_PROVIDER, STATUSES.PROVIDER_ASSIGNED].includes(booking.status)) {
+      const error = new Error('Booking cannot be accepted in current status');
+      error.statusCode = 400;
+      throw error;
+    }
+
+    await assertCaregiverFree(caregiver, booking, { excludeBookingId: booking.id });
+    assertTransition(booking.status, STATUSES.PROVIDER_ACCEPTED);
+    oldStatus = booking.status;
+
+    const result = await client.query(
+      `
+      UPDATE bookings
+      SET status = $1,
+          offer_expires_at = NULL,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = $2
+        AND status = ANY($3::text[])
+        AND provider_id = $4
+      RETURNING *
+      `,
+      [
+        STATUSES.PROVIDER_ACCEPTED,
+        booking.id,
+        [STATUSES.SEARCHING_PROVIDER, STATUSES.PROVIDER_ASSIGNED],
+        caregiver.id
+      ]
+    );
+    updated = result.rows[0];
+    if (!updated) {
+      const error = new Error('Booking was reassigned or already accepted');
+      error.statusCode = 409;
+      error.code = 'CONFLICT';
+      throw error;
+    }
+
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
   }
 
-  const caregiver = await getCaregiverProfileByUserId(userId);
-  await assertCaregiverFree(caregiver, booking, { excludeBookingId: booking.id });
-
-  assertTransition(booking.status, STATUSES.PROVIDER_ACCEPTED);
-  const oldStatus = booking.status;
-  let updated = await updateStatus(booking.id, STATUSES.PROVIDER_ACCEPTED);
-  updated = await clearOfferExpiry(booking.id);
-  await addStatusHistory(booking.id, oldStatus, STATUSES.PROVIDER_ACCEPTED, userId, 'Provider accepted booking');
+  await addStatusHistory(
+    updated.id,
+    oldStatus,
+    STATUSES.PROVIDER_ACCEPTED,
+    userId,
+    'Provider accepted booking'
+  );
 
   await notifySafely({
-    userId: booking.user_id,
+    userId: updated.user_id,
     title: 'Booking Accepted',
-    body: `Your booking ${booking.booking_number} was accepted. Tap to view details.`,
+    body: `Your booking ${updated.booking_number} was accepted. Tap to view details.`,
     type: 'BOOKING_ACCEPTED',
-    bookingId: booking.id,
-    referenceId: booking.id,
+    bookingId: updated.id,
+    referenceId: updated.id,
     referenceType: 'booking',
-    extraData: { booking_number: booking.booking_number, screen: 'inbox' }
+    extraData: { booking_number: updated.booking_number, screen: 'inbox' }
   }, 'Notify user on accept failed');
 
   return updated;

@@ -145,3 +145,38 @@ exports.declineCaregiverEkyc = async (req, res) => {
     return res.serverError('Failed to decline caregiver eKYC');
   }
 };
+
+exports.reviewCredentials = async (req, res) => {
+  try {
+    const { updateCredentialStatus, getCaregiverProfileById, getCaregiverProfileByUserId } = require('../models/CaregiverProfile');
+    const { id } = req.params;
+    let profile = await getCaregiverProfileById(id);
+    if (!profile) profile = await getCaregiverProfileByUserId(id);
+    if (!profile) return res.notFound('Caregiver not found');
+
+    const status = String(req.body?.credential_status || req.body?.status || '').toUpperCase();
+    const allowed = ['VERIFIED', 'REJECTED', 'PENDING', 'SUSPENDED', 'REVERIFY_REQUIRED'];
+    if (!allowed.includes(status)) {
+      return res.badRequest(`credential_status must be one of: ${allowed.join(', ')}`);
+    }
+
+    const updated = await updateCredentialStatus(profile.id, {
+      credential_status: status,
+      credential_note: req.body?.note || req.body?.credential_note || null,
+      credential_expires_at: req.body?.credential_expires_at || null
+    });
+
+    await writeAudit({
+      actorId: req.user.id,
+      action: `CREDENTIAL_${status}`,
+      entityType: 'caregiver',
+      entityId: profile.id,
+      meta: { provider_type: profile.provider_type, note: req.body?.note || null }
+    });
+
+    return res.success(updated, 'Credential status updated');
+  } catch (error) {
+    console.error('Review credentials error:', error);
+    return res.serverError('Failed to update credentials');
+  }
+};

@@ -1,10 +1,17 @@
 const crypto = require('crypto');
 const { createUser, findByEmail, findById, updateUser, updatePassword, verifyPassword, setVerified } = require('../models/User');
-const { generateToken, generateRefreshToken, verifyRefreshToken } = require('../config/jwt');
+const { generateToken } = require('../config/jwt');
 const pool = require('../config/database');
 const transporter = require('../config/nodemailer');
 const { authUser, publicUser } = require('../utils/serializers');
 const { ERROR_CODES } = require('../utils/apiResponse');
+const { normalizeRegisterRole, MAX_OTP_ATTEMPTS } = require('../utils/authHelpers');
+const {
+  issueTokenPair,
+  rotateRefreshToken,
+  logoutWithRefreshToken
+} = require('../services/refreshTokenService');
+const { writeAudit } = require('../utils/audit');
 
 const DEV_OTP = process.env.DEV_OTP || '5852';
 const OTP_TTL_MS = 30 * 60 * 1000; // 30 minutes
@@ -53,12 +60,83 @@ const otpFailureMessage = () =>
 const saveRegistrationOTP = async (email, type = 'registration') => {
   const otp = generateOTP();
   const expiresAt = new Date(Date.now() + OTP_TTL_MS);
-  await pool.query(
-    `INSERT INTO otp_verifications (email, otp, type, expires_at)
-     VALUES ($1, $2, $3, $4)`,
-    [email, otp, type, expiresAt]
-  );
+  try {
+    await pool.query(
+      `INSERT INTO otp_verifications (email, otp, type, expires_at, attempt_count)
+       VALUES ($1, $2, $3, $4, 0)`,
+      [email, otp, type, expiresAt]
+    );
+  } catch (err) {
+    // Pre-migration DBs without attempt_count
+    if (err.code === '42703') {
+      await pool.query(
+        `INSERT INTO otp_verifications (email, otp, type, expires_at)
+         VALUES ($1, $2, $3, $4)`,
+        [email, otp, type, expiresAt]
+      );
+    } else {
+      throw err;
+    }
+  }
   return { otp, expiresAt };
+};
+
+const recordFailedOtpAttempt = async (email) => {
+  const latest = await pool.query(
+    `
+    SELECT id, attempt_count
+    FROM otp_verifications
+    WHERE email = $1 AND type = 'registration' AND is_used = false AND expires_at > NOW()
+      AND locked_at IS NULL
+    ORDER BY created_at DESC
+    LIMIT 1
+    `,
+    [email]
+  );
+  if (!latest.rows[0]) return { locked: false };
+
+  const nextCount = Number(latest.rows[0].attempt_count || 0) + 1;
+  if (nextCount >= MAX_OTP_ATTEMPTS) {
+    await pool.query(
+      `
+      UPDATE otp_verifications
+      SET attempt_count = $1, locked_at = CURRENT_TIMESTAMP, is_used = true
+      WHERE id = $2
+      `,
+      [nextCount, latest.rows[0].id]
+    );
+    return { locked: true, attempts: nextCount };
+  }
+
+  await pool.query(
+    `UPDATE otp_verifications SET attempt_count = $1 WHERE id = $2`,
+    [nextCount, latest.rows[0].id]
+  );
+  return { locked: false, attempts: nextCount };
+};
+
+const findActiveOtpRow = async (email, submittedOtp, { allowExpiredStatic = false } = {}) => {
+  if (allowExpiredStatic) {
+    return pool.query(
+      `
+      SELECT * FROM otp_verifications
+      WHERE email = $1 AND type = 'registration' AND is_used = false
+        AND otp = $2 AND locked_at IS NULL
+      ORDER BY created_at DESC LIMIT 1
+      `,
+      [email, submittedOtp]
+    );
+  }
+
+  return pool.query(
+    `
+    SELECT * FROM otp_verifications
+    WHERE email = $1 AND otp = $2 AND type = 'registration'
+      AND is_used = false AND expires_at > NOW() AND locked_at IS NULL
+    ORDER BY created_at DESC LIMIT 1
+    `,
+    [email, submittedOtp]
+  );
 };
 
 exports.sendOTP = async (req, res) => {
@@ -93,27 +171,43 @@ exports.verifyOTP = async (req, res) => {
     const submittedOtp = String(otp).trim();
     const isStaticOtp = allowStaticOtp() && submittedOtp === String(DEV_OTP);
 
-    // Dev static OTP: accept latest unused registration OTP even if expired
-    let result;
-    if (isStaticOtp) {
-      result = await pool.query(
-        `SELECT * FROM otp_verifications
-         WHERE email = $1 AND type = 'registration' AND is_used = false
-           AND otp = $2
-         ORDER BY created_at DESC LIMIT 1`,
-        [email, String(DEV_OTP)]
-      );
-    } else {
-      result = await pool.query(
-        `SELECT * FROM otp_verifications
-         WHERE email = $1 AND otp = $2 AND type = 'registration'
-           AND is_used = false AND expires_at > NOW()
-         ORDER BY created_at DESC LIMIT 1`,
-        [email, submittedOtp]
+    const locked = await pool.query(
+      `
+      SELECT 1 FROM otp_verifications
+      WHERE email = $1 AND type = 'registration' AND locked_at IS NOT NULL
+        AND created_at > NOW() - INTERVAL '30 minutes'
+      LIMIT 1
+      `,
+      [email]
+    );
+    if (locked.rowCount > 0) {
+      return res.error(
+        'Too many invalid OTP attempts. Request a new OTP.',
+        [],
+        429,
+        ERROR_CODES.TOO_MANY_REQUESTS
       );
     }
 
+    const result = await findActiveOtpRow(email, isStaticOtp ? String(DEV_OTP) : submittedOtp, {
+      allowExpiredStatic: isStaticOtp
+    });
+
     if (result.rows.length === 0) {
+      const attempt = await recordFailedOtpAttempt(email);
+      if (attempt.locked) {
+        await writeAudit({
+          action: 'OTP_LOCKED',
+          entityType: 'otp',
+          meta: { email, attempts: attempt.attempts }
+        });
+        return res.error(
+          'Too many invalid OTP attempts. Request a new OTP.',
+          [],
+          429,
+          ERROR_CODES.TOO_MANY_REQUESTS
+        );
+      }
       return res.error('Invalid or expired OTP', [], 400, ERROR_CODES.OTP_INVALID);
     }
 
@@ -129,13 +223,11 @@ exports.verifyOTP = async (req, res) => {
     }
 
     const verifiedUser = await setVerified(user.id);
-
-    const token = generateToken({ userId: verifiedUser.id, role: verifiedUser.role });
-    const refreshToken = generateRefreshToken({ userId: verifiedUser.id });
+    const tokens = await issueTokenPair(verifiedUser);
 
     return res.success({
-      token,
-      refreshToken,
+      token: tokens.token,
+      refreshToken: tokens.refreshToken,
       user: authUser(verifiedUser)
     }, 'OTP verified successfully');
   } catch (error) {
@@ -152,6 +244,11 @@ exports.register = async (req, res) => {
       return res.error('Name, email, and password are required');
     }
 
+    const roleResult = normalizeRegisterRole(role);
+    if (!roleResult.ok) {
+      return res.error(roleResult.message, [], 400, ERROR_CODES.VALIDATION_ERROR || 'VALIDATION_ERROR');
+    }
+
     const existingUser = await findByEmail(email);
     if (existingUser) {
       return res.conflict('User with this email already exists');
@@ -161,7 +258,7 @@ exports.register = async (req, res) => {
       name,
       email,
       password,
-      role: role || 'USER'
+      role: roleResult.role
     });
 
     const { otp, expiresAt } = await saveRegistrationOTP(email, 'registration');
@@ -169,18 +266,16 @@ exports.register = async (req, res) => {
 
     const userPayload = authUser(user);
     const message = emailSent
-      ? (role === 'ADMIN'
-        ? 'Admin registration successful. Please verify your email with the OTP sent to your email address.'
-        : role === 'CAREGIVER'
-          ? 'Caregiver registration successful. Please verify your email with the OTP sent to your email address.'
-          : 'Registration successful. Please verify your email with the OTP sent to your email address.')
+      ? (roleResult.role === 'CAREGIVER'
+        ? 'Caregiver registration successful. Please verify your email with the OTP sent to your email address.'
+        : 'Registration successful. Please verify your email with the OTP sent to your email address.')
       : (allowStaticOtp()
         ? `Registration successful. Email delivery failed — use OTP ${DEV_OTP} to verify.`
         : 'Registration successful. Email delivery failed — please try again or contact support.');
 
     return res.created({
       user: userPayload,
-      expiresAt: role === 'ADMIN' ? undefined : expiresAt,
+      expiresAt,
       email_sent: emailSent
     }, message);
   } catch (error) {
@@ -219,12 +314,11 @@ exports.login = async (req, res) => {
       return res.forbidden('Account is not active');
     }
 
-    const token = generateToken({ userId: user.id, role: user.role });
-    const refreshToken = generateRefreshToken({ userId: user.id });
+    const tokens = await issueTokenPair(user);
 
     return res.success({
-      token,
-      refreshToken,
+      token: tokens.token,
+      refreshToken: tokens.refreshToken,
       user: authUser(user)
     }, 'Login successful');
   } catch (error) {
@@ -241,23 +335,60 @@ exports.refreshToken = async (req, res) => {
       return res.badRequest('Refresh token is required');
     }
 
-    const decoded = verifyRefreshToken(refreshToken);
+    const rotated = await rotateRefreshToken(refreshToken);
 
-    const user = await findById(decoded.userId);
-    if (!user) {
+    if (rotated.reuseDetected) {
+      await writeAudit({
+        action: 'REFRESH_TOKEN_REUSE',
+        entityType: 'session',
+        meta: { familyId: rotated.familyId || null }
+      });
+      return res.unauthorized(
+        'Refresh token reuse detected. Please sign in again.',
+        ERROR_CODES.TOKEN_INVALID
+      );
+    }
+
+    if (rotated.invalid || !rotated.userId) {
+      return res.unauthorized('Invalid refresh token', ERROR_CODES.TOKEN_INVALID);
+    }
+
+    const user = await findById(rotated.userId);
+    if (!user || user.status !== 'active') {
       return res.unauthorized('Invalid refresh token', ERROR_CODES.TOKEN_INVALID);
     }
 
     const token = generateToken({ userId: user.id, role: user.role });
-    const newRefreshToken = generateRefreshToken({ userId: user.id });
 
     return res.success({
       token,
-      refreshToken: newRefreshToken
+      refreshToken: rotated.refreshToken
     }, 'Token refreshed successfully');
   } catch (error) {
     console.error('Refresh token error:', error);
     return res.unauthorized('Invalid refresh token', ERROR_CODES.TOKEN_INVALID);
+  }
+};
+
+exports.logout = async (req, res) => {
+  try {
+    const refreshToken = req.body?.refreshToken || req.body?.refresh_token || null;
+    const result = await logoutWithRefreshToken(refreshToken);
+
+    if (result.userId || req.user?.id) {
+      await writeAudit({
+        actorId: result.userId || req.user?.id || null,
+        action: 'LOGOUT',
+        entityType: 'session',
+        entityId: result.userId || req.user?.id || null,
+        meta: { familyId: result.familyId || null, revoked: !!result.revoked }
+      });
+    }
+
+    return res.success({ revoked: !!result.revoked }, 'Logged out successfully');
+  } catch (error) {
+    console.error('Logout error:', error);
+    return res.serverError('Failed to logout');
   }
 };
 

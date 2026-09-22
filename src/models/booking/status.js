@@ -46,6 +46,29 @@ const updateStatus = async (id, status) => {
   return result.rows[0];
 };
 
+/** Conditional status update — returns null if status precondition failed (race-safe). */
+const updateStatusIf = async (id, fromStatuses, toStatus) => {
+  const allowed = Array.isArray(fromStatuses) ? fromStatuses : [fromStatuses];
+  const result = await pool.query(
+    `
+    UPDATE bookings
+    SET status = $1, updated_at = CURRENT_TIMESTAMP
+    WHERE id = $2 AND status = ANY($3::text[])
+    RETURNING *
+    `,
+    [toStatus, id, allowed]
+  );
+  return result.rows[0] || null;
+};
+
+const lockBookingForUpdate = async (client, id) => {
+  const result = await client.query(
+    `SELECT * FROM bookings WHERE id = $1 FOR UPDATE`,
+    [id]
+  );
+  return result.rows[0] || null;
+};
+
 const clearProvider = async (id, status = 'SEARCHING_PROVIDER') => {
   const result = await pool.query(
     `
@@ -212,6 +235,8 @@ const listRejectedIds = async (bookingId) => {
 module.exports = {
   updateBooking,
   updateStatus,
+  updateStatusIf,
+  lockBookingForUpdate,
   clearProvider,
   assignProvider,
   setOfferExpiry,

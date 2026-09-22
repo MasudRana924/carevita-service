@@ -1,12 +1,13 @@
 const pool = require('../config/database');
 const Wallet = require('../models/Wallet');
-const { PLATFORM_FEE_RATE } = require('../config/platform');
+const { snapshotPlatformFeeForPaidAmount } = require('../utils/paymentIntegrity');
 
 /**
  * After successful bKash payment:
- * - 5% → PLATFORM wallet (CareMate service fee)
- * - 95% → CAREGIVER wallet
+ * - snapshotted platform fee share → PLATFORM wallet
+ * - remainder → CAREGIVER wallet
  * Idempotent per payment_id.
+ * Uses booking.platform_fee / total_amount snapshot — not live PLATFORM_FEE_RATE.
  */
 const distributePaymentToWallets = async ({
   payment,
@@ -24,8 +25,11 @@ const distributePaymentToWallets = async ({
     return { skipped: true, reason: 'already_credited' };
   }
 
-  const platformFee = Number((amount * PLATFORM_FEE_RATE).toFixed(2));
+  const platformFee = snapshotPlatformFeeForPaidAmount(booking, amount);
   const caregiverEarning = Number((amount - platformFee).toFixed(2));
+  if (caregiverEarning < 0) {
+    throw new Error('Invalid fee snapshot relative to paid amount');
+  }
 
   const client = await pool.connect();
   try {
@@ -39,11 +43,19 @@ const distributePaymentToWallets = async ({
       ownerType: 'CAREGIVER'
     });
 
-    // Ensure user (customer) also has a wallet row (balance unchanged on pay)
     await Wallet.getOrCreateWallet(client, {
       userId: booking.user_id,
       ownerType: 'USER'
     });
+
+    // Lock wallets to serialize concurrent credits/debits
+    await client.query(`SELECT id FROM wallets WHERE id = $1 FOR UPDATE`, [platformWallet.id]);
+    await client.query(`SELECT id FROM wallets WHERE id = $1 FOR UPDATE`, [caregiverWallet.id]);
+
+    if (await Wallet.hasPaymentCredits(payment.id, client)) {
+      await client.query('ROLLBACK');
+      return { skipped: true, reason: 'already_credited' };
+    }
 
     const platformCredit = await Wallet.credit(client, {
       walletId: platformWallet.id,
@@ -52,11 +64,12 @@ const distributePaymentToWallets = async ({
       paymentId: payment.id,
       amount: platformFee,
       category: 'PLATFORM_FEE',
-      description: `${Math.round(PLATFORM_FEE_RATE * 100)}% service fee from booking ${booking.booking_number}`,
+      description: `Platform fee from booking ${booking.booking_number}`,
       meta: {
         booking_number: booking.booking_number,
         trx_id: trxId,
-        rate: PLATFORM_FEE_RATE,
+        snapshotted_platform_fee: Number(booking.platform_fee),
+        snapshotted_total: Number(booking.total_amount),
         paid_amount: amount
       }
     });
@@ -68,11 +81,10 @@ const distributePaymentToWallets = async ({
       paymentId: payment.id,
       amount: caregiverEarning,
       category: 'CAREGIVER_EARNING',
-      description: `${Math.round((1 - PLATFORM_FEE_RATE) * 100)}% earning from booking ${booking.booking_number}`,
+      description: `Earning from booking ${booking.booking_number}`,
       meta: {
         booking_number: booking.booking_number,
         trx_id: trxId,
-        rate: 1 - PLATFORM_FEE_RATE,
         paid_amount: amount
       }
     });
@@ -153,6 +165,7 @@ const reversePaymentWallets = async ({ payment, booking, amount }) => {
     const reversed = [];
 
     for (const row of credits.rows) {
+      await client.query(`SELECT id FROM wallets WHERE id = $1 FOR UPDATE`, [row.wallet_id]);
       const debitAmount = Number((Number(row.amount) * ratio).toFixed(2));
       if (!(debitAmount > 0)) continue;
       const result = await Wallet.debit(client, {
@@ -179,7 +192,6 @@ const reversePaymentWallets = async ({ payment, booking, amount }) => {
 };
 
 module.exports = {
-  PLATFORM_FEE_RATE,
   distributePaymentToWallets,
   getCaregiverEarningForBooking,
   reversePaymentWallets

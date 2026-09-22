@@ -3,11 +3,35 @@ const Payment = require('../models/Payment');
 const { distributePaymentToWallets } = require('./walletService');
 const { getCaregiverProfileById } = require('../models/CaregiverProfile');
 const { notifyUser } = require('./pushNotificationService');
+const { reconcilePaymentAmount } = require('../utils/paymentIntegrity');
+const { writeAudit } = require('../utils/audit');
 
 /**
  * After bKash reports success: mark payment, booking, wallets, notify caregiver.
  */
 const completeSuccessfulPayment = async ({ payment, booking, userId, bkashRes }) => {
+  const reported = bkashRes.amount != null ? bkashRes.amount : payment.amount;
+  const reconciled = reconcilePaymentAmount(booking, reported);
+  if (!reconciled.ok) {
+    await writeAudit({
+      actorId: userId || null,
+      action: 'PAYMENT_AMOUNT_MISMATCH',
+      entityType: 'payment',
+      entityId: payment.id,
+      meta: {
+        expected: reconciled.expected,
+        received: reconciled.received,
+        booking_id: booking.id
+      }
+    });
+    const error = new Error(reconciled.message);
+    error.statusCode = 400;
+    error.code = 'PAYMENT_FAILED';
+    throw error;
+  }
+
+  const paidAmount = reconciled.amount;
+
   const updatedPayment = await Payment.markExecuted(payment.id, {
     status: 'COMPLETED',
     trx_id: bkashRes.trxID || bkashRes.trxId || null,
@@ -28,7 +52,6 @@ const completeSuccessfulPayment = async ({ payment, booking, userId, bkashRes })
     console.error('Payment status history failed:', historyErr.message);
   }
 
-  const paidAmount = Number(bkashRes.amount || payment.amount || 0);
   const trxId = bkashRes.trxID || bkashRes.trxId || null;
 
   let walletResult = null;

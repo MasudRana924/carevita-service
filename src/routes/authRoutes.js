@@ -1,18 +1,21 @@
 const express = require('express');
 const router = express.Router();
-const { body } = require('express-validator');
 const authController = require('../controllers/authController');
 const { authenticate } = require('../middleware/auth');
-const { authLimiter } = require('../middleware/rateLimiter');
+const {
+  authLimiter,
+  otpLimiter,
+  loginLimiter
+} = require('../middleware/rateLimiter');
 const upload = require('../middleware/upload');
-const validate = require('../middleware/validator');
 
-router.post('/send-otp', authLimiter, authController.sendOTP);
-router.post('/verify-otp', authLimiter, authController.verifyOTP);
-router.post('/resend-otp', authLimiter, authController.resendOTP);
+router.post('/send-otp', otpLimiter, authController.sendOTP);
+router.post('/verify-otp', otpLimiter, authController.verifyOTP);
+router.post('/resend-otp', otpLimiter, authController.resendOTP);
 router.post('/register', authLimiter, authController.register);
-router.post('/login', authLimiter, authController.login);
-router.post('/refresh-token', authController.refreshToken);
+router.post('/login', loginLimiter, authController.login);
+router.post('/refresh-token', authLimiter, authController.refreshToken);
+router.post('/logout', authLimiter, authController.logout);
 
 router.get('/profile', authenticate, authController.getProfile);
 router.put('/profile', authenticate, authController.updateProfile);

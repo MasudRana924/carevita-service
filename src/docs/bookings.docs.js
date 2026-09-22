@@ -14,23 +14,15 @@
  *             properties:
  *               service_type: { type: string, example: HOSPITAL_ASSISTANCE }
  *               family_member_id: { type: string, format: uuid }
- *               provider_type: { type: string, example: CAREGIVER }
- *               provider_id: { type: string, format: uuid }
+ *               requested_provider_type: { type: string, enum: [CAREGIVER, NURSE], example: CAREGIVER, description: Provider subtype to auto-match (users.role stays CAREGIVER) }
+ *               provider_id: { type: string, format: uuid, description: Optional preferred caregiver_profiles.id }
  *               hospital_id: { type: string, format: uuid }
  *               booking_date: { type: string, format: date, example: "2026-09-15" }
  *               start_time: { type: string, example: "10:00" }
  *               duration_hours: { type: integer, example: 4 }
  *               patient_requirements: { type: string }
  *               notes: { type: string }
- *               pickup_location:
- *                 type: object
- *                 properties:
- *                   address: { type: string }
- *                   city: { type: string }
- *                   district: { type: string }
- *                   division: { type: string }
- *                   latitude: { type: number }
- *                   longitude: { type: number }
+ *               auto_assign: { type: boolean, example: true }
  *     responses:
  *       201:
  *         description: Booking created
@@ -195,4 +187,31 @@
  *     responses:
  *       200:
  *         description: Cancelled
+ *
+ * /bookings/{id}/safety-incident:
+ *   post:
+ *     tags: [Bookings]
+ *     summary: Report a safety incident (USER)
+ *     description: >
+ *       Creates an open safety incident, freezes caregiver payout for the booking,
+ *       and returns support contact info. CareMate is not an emergency dispatch service.
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [description]
+ *             properties:
+ *               description: { type: string, minLength: 5, example: Caregiver behaved inappropriately }
+ *     responses:
+ *       201:
+ *         description: Incident recorded; payout frozen
+ *       403:
+ *         description: Not the booking owner
  */
