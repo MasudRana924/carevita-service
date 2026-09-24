@@ -80,16 +80,17 @@ exports.createConversation = async (req, res) => {
  */
 exports.getConversationMessages = async (req, res) => {
   try {
-    const conversation = await getConversationByIdForUser(req.params.id, req.user.id);
+    const conversationId = req.params.id;
+    const conversation = await getConversationByIdForUser(conversationId, req.user.id);
     if (!conversation) {
       return res.notFound('Conversation not found');
     }
 
     const { page, limit, offset } = parsePagination(req.query);
-    const messages = await getMessagesByConversationId(req.params.id, { limit, offset });
+    const messages = await getMessagesByConversationId(conversationId, { limit, offset });
 
     // Mark admin messages as read
-    await markMessagesAsRead(req.params.id, 'admin');
+    await markMessagesAsRead(conversationId, 'admin');
 
     return res.success(messages, 'Messages fetched successfully');
   } catch (error) {
@@ -103,17 +104,17 @@ exports.getConversationMessages = async (req, res) => {
  */
 exports.sendMessage = async (req, res) => {
   try {
-    const { conversation_id } = req.params;
+    const conversationId = req.params.id;
     const { message_type = 'text', message } = req.body;
 
     // Verify user owns this conversation
-    const conversation = await getConversationByIdForUser(conversation_id, req.user.id);
+    const conversation = await getConversationByIdForUser(conversationId, req.user.id);
     if (!conversation) {
       return res.notFound('Conversation not found');
     }
 
     const newMessage = await createMessage({
-      conversation_id,
+      conversation_id: conversationId,
       sender_id: req.user.id,
       sender_role: 'user',
       message_type,
@@ -132,12 +133,13 @@ exports.sendMessage = async (req, res) => {
  */
 exports.markAsRead = async (req, res) => {
   try {
-    const conversation = await getConversationByIdForUser(req.params.id, req.user.id);
+    const conversationId = req.params.id;
+    const conversation = await getConversationByIdForUser(conversationId, req.user.id);
     if (!conversation) {
       return res.notFound('Conversation not found');
     }
 
-    const messages = await markMessagesAsRead(req.params.id, 'admin');
+    const messages = await markMessagesAsRead(conversationId, 'admin');
     return res.success(messages, 'Messages marked as read');
   } catch (error) {
     console.error('Mark as read error:', error);

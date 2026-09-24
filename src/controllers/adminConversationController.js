@@ -52,16 +52,17 @@ exports.getConversation = async (req, res) => {
  */
 exports.getConversationMessages = async (req, res) => {
   try {
-    const conversation = await getConversationById(req.params.id);
+    const conversationId = req.params.id;
+    const conversation = await getConversationById(conversationId);
     if (!conversation) {
       return res.notFound('Conversation not found');
     }
 
     const { page, limit, offset } = parsePagination(req.query);
-    const messages = await getMessagesByConversationId(req.params.id, { limit, offset });
+    const messages = await getMessagesByConversationId(conversationId, { limit, offset });
 
     // Mark user messages as read
-    await markMessagesAsRead(req.params.id, 'user');
+    await markMessagesAsRead(conversationId, 'user');
 
     return res.success(messages, 'Messages fetched successfully');
   } catch (error) {
@@ -75,16 +76,16 @@ exports.getConversationMessages = async (req, res) => {
  */
 exports.replyToConversation = async (req, res) => {
   try {
-    const { conversation_id } = req.params;
+    const conversationId = req.params.id;
     const { message_type = 'text', message } = req.body;
 
-    const conversation = await getConversationById(conversation_id);
+    const conversation = await getConversationById(conversationId);
     if (!conversation) {
       return res.notFound('Conversation not found');
     }
 
     const newMessage = await createMessage({
-      conversation_id,
+      conversation_id: conversationId,
       sender_id: req.user.id,
       sender_role: 'admin',
       message_type,
@@ -103,7 +104,7 @@ exports.replyToConversation = async (req, res) => {
           body: message.substring(0, 100) + (message.length > 100 ? '...' : ''),
           data: {
             type: 'conversation_message',
-            conversation_id: conversation_id,
+            conversation_id: conversationId,
             message_id: newMessage.id
           }
         });
@@ -123,12 +124,13 @@ exports.replyToConversation = async (req, res) => {
 exports.updateConversationStatus = async (req, res) => {
   try {
     const { status } = req.body;
+    const conversationId = req.params.id;
     
     if (!['active', 'closed', 'archived'].includes(status)) {
       return res.badRequest('Invalid status. Must be active, closed, or archived');
     }
 
-    const conversation = await updateConversationStatus(req.params.id, status);
+    const conversation = await updateConversationStatus(conversationId, status);
     if (!conversation) {
       return res.notFound('Conversation not found');
     }
@@ -145,12 +147,13 @@ exports.updateConversationStatus = async (req, res) => {
  */
 exports.markAsRead = async (req, res) => {
   try {
-    const conversation = await getConversationById(req.params.id);
+    const conversationId = req.params.id;
+    const conversation = await getConversationById(conversationId);
     if (!conversation) {
       return res.notFound('Conversation not found');
     }
 
-    const messages = await markMessagesAsRead(req.params.id, 'user');
+    const messages = await markMessagesAsRead(conversationId, 'user');
     return res.success(messages, 'Messages marked as read');
   } catch (error) {
     console.error('Mark as read error:', error);
