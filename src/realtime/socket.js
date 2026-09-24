@@ -2,6 +2,7 @@ const { Server } = require('socket.io');
 const { verifyToken } = require('../config/jwt');
 const pool = require('../config/database');
 const liveTrackingService = require('../services/liveTrackingService');
+const { findConversationById } = require('../models/Conversation');
 
 let io = null;
 
@@ -53,6 +54,12 @@ const initSocket = (httpServer) => {
   io.on('connection', (socket) => {
     console.log(`Socket connected: ${socket.id} user=${socket.user.id} role=${socket.user.role}`);
 
+    // Join admin room if user is admin
+    if (socket.user.role === 'ADMIN') {
+      socket.join('admins');
+      console.log(`Admin ${socket.user.id} joined admins room`);
+    }
+
     // USER (or caregiver) joins booking room to receive live updates
     socket.on('tracking:subscribe', async (payload = {}, ack) => {
       try {
@@ -102,6 +109,131 @@ const initSocket = (httpServer) => {
       }
     });
 
+    // Join a conversation room for real-time messaging
+    socket.on('conversation:join', async (payload = {}, ack) => {
+      try {
+        const conversationId = payload.conversation_id || payload.conversationId;
+        if (!conversationId) throw Object.assign(new Error('conversation_id is required'), { statusCode: 400 });
+
+        // Verify user has access to this conversation
+        const conversation = await findConversationById(conversationId);
+        if (!conversation) {
+          throw Object.assign(new Error('Conversation not found'), { statusCode: 404 });
+        }
+
+        // Check authorization
+        if (socket.user.role !== 'ADMIN' && conversation.user_id !== socket.user.id) {
+          throw Object.assign(new Error('You do not have access to this conversation'), { statusCode: 403 });
+        }
+
+        const roomName = `conversation:${conversationId}`;
+        await socket.join(roomName);
+        console.log(`User ${socket.user.id} joined conversation room: ${roomName}`);
+
+        if (typeof ack === 'function') ack({ ok: true, room: roomName });
+      } catch (error) {
+        const message = error.message || 'Failed to join conversation';
+        socket.emit('conversation:error', { message });
+        if (typeof ack === 'function') ack({ ok: false, message });
+      }
+    });
+
+    // Leave a conversation room
+    socket.on('conversation:leave', async (payload = {}) => {
+      const conversationId = payload.conversation_id || payload.conversationId;
+      if (!conversationId) return;
+      
+      const roomName = `conversation:${conversationId}`;
+      await socket.leave(roomName);
+      console.log(`User ${socket.user.id} left conversation room: ${roomName}`);
+    });
+
+    // Send a message via WebSocket (real-time)
+    socket.on('message:send', async (payload = {}, ack) => {
+      try {
+        const { conversation_id, message, message_type = 'text' } = payload;
+        
+        if (!conversation_id) throw Object.assign(new Error('conversation_id is required'), { statusCode: 400 });
+        if (!message) throw Object.assign(new Error('message is required'), { statusCode: 400 });
+
+        // Verify user has access to this conversation
+        const conversation = await findConversationById(conversation_id);
+        if (!conversation) {
+          throw Object.assign(new Error('Conversation not found'), { statusCode: 404 });
+        }
+
+        // Check authorization
+        if (socket.user.role !== 'ADMIN' && conversation.user_id !== socket.user.id) {
+          throw Object.assign(new Error('You do not have access to this conversation'), { statusCode: 403 });
+        }
+
+        // Create message via database (this will also trigger push notifications)
+        const { createMessage } = require('../models/Message');
+        const newMessage = await createMessage({
+          conversation_id,
+          sender_id: socket.user.id,
+          sender_role: socket.user.role,
+          message,
+          message_type
+        });
+
+        // Emit to conversation room
+        const roomName = `conversation:${conversation_id}`;
+        io.to(roomName).emit('message:new', newMessage);
+        
+        // Also emit to admin room if sender is not admin
+        if (socket.user.role !== 'ADMIN') {
+          io.to('admins').emit('conversation:new_message', {
+            conversation_id,
+            message: newMessage
+          });
+        }
+
+        if (typeof ack === 'function') ack({ ok: true, data: newMessage });
+      } catch (error) {
+        const message = error.message || 'Failed to send message';
+        socket.emit('message:error', { message });
+        if (typeof ack === 'function') ack({ ok: false, message });
+      }
+    });
+
+    // Mark messages as read via WebSocket
+    socket.on('message:mark_read', async (payload = {}, ack) => {
+      try {
+        const { conversation_id, message_id } = payload;
+        
+        if (!conversation_id) throw Object.assign(new Error('conversation_id is required'), { statusCode: 400 });
+
+        // Verify user has access to this conversation
+        const conversation = await findConversationById(conversation_id);
+        if (!conversation) {
+          throw Object.assign(new Error('Conversation not found'), { statusCode: 404 });
+        }
+
+        // Check authorization
+        if (socket.user.role !== 'ADMIN' && conversation.user_id !== socket.user.id) {
+          throw Object.assign(new Error('You do not have access to this conversation'), { statusCode: 403 });
+        }
+
+        const { markConversationMessagesAsRead } = require('../models/Message');
+        const updated = await markConversationMessagesAsRead(conversation_id, socket.user.id);
+
+        // Emit to conversation room
+        const roomName = `conversation:${conversation_id}`;
+        io.to(roomName).emit('conversation:messages_read', {
+          conversation_id,
+          read_by: socket.user.id,
+          count: updated.length
+        });
+
+        if (typeof ack === 'function') ack({ ok: true, count: updated.length });
+      } catch (error) {
+        const message = error.message || 'Failed to mark messages as read';
+        socket.emit('message:error', { message });
+        if (typeof ack === 'function') ack({ ok: false, message });
+      }
+    });
+
     socket.on('disconnect', () => {
       console.log(`Socket disconnected: ${socket.id}`);
     });
@@ -126,9 +258,35 @@ const emitTrackingEnded = (bookingId) => {
   });
 };
 
+// Helper function to emit new message to conversation room
+const emitNewMessage = (conversationId, message) => {
+  if (!io) return;
+  const roomName = `conversation:${conversationId}`;
+  io.to(roomName).emit('message:new', message);
+};
+
+// Helper function to emit message read status
+const emitMessageRead = (conversationId, messageId, readBy) => {
+  if (!io) return;
+  const roomName = `conversation:${conversationId}`;
+  io.to(roomName).emit('message:read', { message_id: messageId, read_by: readBy });
+};
+
+// Helper function to notify admins of new conversation message
+const emitAdminNewMessage = (conversationId, message) => {
+  if (!io) return;
+  io.to('admins').emit('conversation:new_message', {
+    conversation_id: conversationId,
+    message: message
+  });
+};
+
 module.exports = {
   initSocket,
   getIO,
   emitLocation,
-  emitTrackingEnded
+  emitTrackingEnded,
+  emitNewMessage,
+  emitMessageRead,
+  emitAdminNewMessage
 };
