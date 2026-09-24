@@ -70,4 +70,11 @@ const authorizeOwnerOrAdmin = (getResourceUserId) => {
   };
 };
 
-module.exports = { authenticate, authorize, authorizeOwnerOrAdmin };
+const requireAdmin = (req, res, next) => {
+  if (req.user.role !== 'ADMIN') {
+    return res.forbidden('Admin access required');
+  }
+  next();
+};
+
+module.exports = { authenticate, authorize, authorizeOwnerOrAdmin, requireAdmin };

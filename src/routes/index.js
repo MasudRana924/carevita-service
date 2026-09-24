@@ -13,6 +13,8 @@ const notificationTokenRoutes = require('./notificationTokenRoutes');
 const paymentRoutes = require('./paymentRoutes');
 const ekycRoutes = require('./ekycRoutes');
 const privacyPolicyRoutes = require('./privacyPolicyRoutes');
+const conversationRoutes = require('./conversationRoutes');
+const adminConversationRoutes = require('./adminConversationRoutes');
 
 router.use('/auth', authRoutes);
 router.use('/user', userRoutes);
@@ -26,6 +28,8 @@ router.use('/notifications', notificationTokenRoutes);
 router.use('/payments', paymentRoutes);
 router.use('/ekyc', ekycRoutes);
 router.use('/privacy-policies', privacyPolicyRoutes);
+router.use('/conversations', conversationRoutes);
+router.use('/admin/conversations', adminConversationRoutes);
 
 router.get('/health', (req, res) => {
   res.success({ status: 'ok' }, 'CareMate API is running');

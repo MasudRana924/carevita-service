@@ -53,6 +53,12 @@ const initSocket = (httpServer) => {
   io.on('connection', (socket) => {
     console.log(`Socket connected: ${socket.id} user=${socket.user.id} role=${socket.user.role}`);
 
+    // Join admin room if user is admin
+    if (socket.user.role === 'ADMIN') {
+      socket.join('admin');
+      console.log(`Admin ${socket.user.id} joined admin room`);
+    }
+
     // USER (or caregiver) joins booking room to receive live updates
     socket.on('tracking:subscribe', async (payload = {}, ack) => {
       try {
@@ -100,6 +106,36 @@ const initSocket = (httpServer) => {
         socket.emit('tracking:error', { message });
         if (typeof ack === 'function') ack({ ok: false, message });
       }
+    });
+
+    // Conversation subscription for users
+    socket.on('conversation:subscribe', async (payload = {}, ack) => {
+      try {
+        const conversationId = payload.conversation_id || payload.conversationId;
+        if (!conversationId) throw Object.assign(new Error('conversation_id is required'), { statusCode: 400 });
+
+        // Verify user owns this conversation
+        const { getConversationByIdForUser } = require('../models/Conversation');
+        const conversation = await getConversationByIdForUser(conversationId, socket.user.id);
+        if (!conversation) {
+          throw Object.assign(new Error('Conversation not found'), { statusCode: 404 });
+        }
+
+        const room = `user:${conversationId}`;
+        await socket.join(room);
+
+        if (typeof ack === 'function') ack({ ok: true });
+      } catch (error) {
+        const message = error.message || 'Failed to subscribe to conversation';
+        socket.emit('conversation:error', { message });
+        if (typeof ack === 'function') ack({ ok: false, message });
+      }
+    });
+
+    socket.on('conversation:unsubscribe', async (payload = {}) => {
+      const conversationId = payload.conversation_id || payload.conversationId;
+      if (!conversationId) return;
+      await socket.leave(`user:${conversationId}`);
     });
 
     socket.on('disconnect', () => {
