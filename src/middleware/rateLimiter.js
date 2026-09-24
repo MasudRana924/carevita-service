@@ -89,7 +89,9 @@ const apiLimiter = rateLimit({
   legacyHeaders: false,
   skip: (req) => {
     const path = (req.originalUrl || req.url || '').split('?')[0];
-    return /\/ekyc\/webhook\/?$/.test(path) || /\/payments\/bkash\/callback\/?$/.test(path);
+    return /\/ekyc\/webhook\/?$/.test(path) || 
+           /\/payments\/bkash\/callback\/?$/.test(path) ||
+           /\/admin\/.*/.test(path); // Skip rate limiting for admin routes
   },
   handler: tooMany('Too many requests, please try again later.')
 });

@@ -110,10 +110,6 @@ exports.replyToConversation = async (req, res) => {
       }
     }
 
-    // Emit via WebSocket to user
-    const { emitNewMessage } = require('../realtime/conversationSocket');
-    emitNewMessage(conversation_id, newMessage);
-
     return res.success(newMessage, 'Reply sent successfully');
   } catch (error) {
     console.error('Reply to conversation error:', error);

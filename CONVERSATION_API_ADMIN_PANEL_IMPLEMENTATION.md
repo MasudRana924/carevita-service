@@ -231,7 +231,11 @@ Authorization: Bearer <your_admin_jwt_token>
 
 ## WebSocket Integration
 
-### Connection
+**Note:** Admin panel uses page reload for updates instead of WebSocket. Real-time WebSocket features are available but optional for future enhancement.
+
+### Optional WebSocket Connection
+If you want to add real-time updates in the future:
+
 Connect to WebSocket at: `wss://your-api-domain.com/socket.io`
 
 ### Authentication
@@ -247,7 +251,7 @@ const socket = io('wss://your-api-domain.com', {
 ### Automatic Admin Room Join
 Admin users are automatically joined to the `admin` room upon connection. You don't need to manually join.
 
-### Listen for New Conversations
+### Listen for New Conversations (Optional)
 ```javascript
 socket.on('conversation:new', (data) => {
   console.log('New conversation created:', data.conversation);
@@ -259,7 +263,7 @@ socket.on('conversation:new', (data) => {
 });
 ```
 
-### Listen for New Messages
+### Listen for New Messages (Optional)
 ```javascript
 socket.on('conversation:message', (data) => {
   console.log('New message received:', data.message);
@@ -272,7 +276,7 @@ socket.on('conversation:message', (data) => {
 });
 ```
 
-### Listen for Status Updates
+### Listen for Status Updates (Optional)
 ```javascript
 socket.on('conversation:status', (data) => {
   console.log('Conversation status changed:', data.status);
@@ -316,6 +320,16 @@ socket.on('conversation:status', (data) => {
 - Quick actions (mark as read, close conversation)
 
 ## Real-time Features
+
+**Note:** Admin panel primarily uses page reload for updates. WebSocket features are optional for future enhancement.
+
+### Current Implementation (Page Reload)
+- Admin manually refreshes the page to see new conversations and messages
+- Simple and reliable approach for admin panel
+- No complex WebSocket connection management required
+
+### Optional WebSocket Enhancement
+If you want to add real-time updates in the future:
 
 ### New Conversation Notifications
 When a user creates a new conversation:
@@ -369,9 +383,9 @@ Handle these common error responses:
 
 ## Performance Optimization
 1. Implement virtual scrolling for large conversation lists
-2. Use WebSocket for real-time updates instead of polling
-3. Cache conversation data locally
-4. Implement lazy loading for messages
-5. Debounce search queries
-6. Use pagination for both conversations and messages
-7. Implement image optimization for media messages
+2. Cache conversation data locally for faster page loads
+3. Implement lazy loading for messages
+4. Debounce search queries
+5. Use pagination for both conversations and messages
+6. Implement image optimization for media messages
+7. Consider adding auto-refresh interval (e.g., every 30 seconds) for near real-time updates without WebSocket complexity
