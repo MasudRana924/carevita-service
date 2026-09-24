@@ -231,10 +231,15 @@ Authorization: Bearer <your_admin_jwt_token>
 
 ## WebSocket Integration
 
-**Note:** Admin panel uses page reload for updates instead of WebSocket. Real-time WebSocket features are available but optional for future enhancement.
+**Note:** Admin panel uses page reload for updates. Users use WebSocket for real-time updates. Admin can optionally use WebSocket if needed in future.
 
-### Optional WebSocket Connection
-If you want to add real-time updates in the future:
+### Current Implementation (Page Reload)
+- Admin manually refreshes the page to see new conversations and messages
+- Simple and reliable approach for admin panel
+- No complex WebSocket connection management required
+
+### Optional WebSocket Enhancement
+If you want to add real-time updates for admin in the future:
 
 Connect to WebSocket at: `wss://your-api-domain.com/socket.io`
 
@@ -251,18 +256,6 @@ const socket = io('wss://your-api-domain.com', {
 ### Automatic Admin Room Join
 Admin users are automatically joined to the `admin` room upon connection. You don't need to manually join.
 
-### Listen for New Conversations (Optional)
-```javascript
-socket.on('conversation:new', (data) => {
-  console.log('New conversation created:', data.conversation);
-  console.log('First message:', data.first_message);
-  // Update conversation list
-  // Show notification to admin
-  // data.conversation: conversation object
-  // data.first_message: first message object
-});
-```
-
 ### Listen for New Messages (Optional)
 ```javascript
 socket.on('conversation:message', (data) => {
@@ -273,16 +266,6 @@ socket.on('conversation:message', (data) => {
   // Show notification if not viewing the conversation
   // data.conversation_id: string
   // data.message: message object
-});
-```
-
-### Listen for Status Updates (Optional)
-```javascript
-socket.on('conversation:status', (data) => {
-  console.log('Conversation status changed:', data.status);
-  // Update conversation status in list
-  // data.conversation_id: string
-  // data.status: 'active' | 'closed' | 'archived'
 });
 ```
 

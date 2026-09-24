@@ -215,11 +215,13 @@ Authorization: Bearer <your_jwt_token>
 
 ## WebSocket Integration
 
+**Note:** Since your app already uses WebSocket for live tracking, you can use the same connection for real-time conversation updates. This provides better UX than relying solely on push notifications.
+
 ### Connection
-Connect to WebSocket at: `wss://your-api-domain.com/socket.io`
+Use your existing WebSocket connection at: `wss://your-api-domain.com/socket.io`
 
 ### Authentication
-Pass JWT token via handshake:
+Pass JWT token via handshake (same as your current setup):
 ```javascript
 const socket = io('wss://your-api-domain.com', {
   auth: {
@@ -229,6 +231,7 @@ const socket = io('wss://your-api-domain.com', {
 ```
 
 ### Subscribe to Conversation
+When user opens a conversation screen:
 ```javascript
 socket.emit('conversation:subscribe', {
   conversation_id: 'conversation_uuid'
@@ -242,10 +245,19 @@ socket.emit('conversation:subscribe', {
 ```
 
 ### Listen for New Messages
+Add this to your existing socket event listeners:
 ```javascript
 socket.on('conversation:message', (data) => {
   console.log('New message received:', data.message);
-  // Update UI with new message
+  
+  // If currently viewing this conversation, append message immediately
+  if (currentConversationId === data.conversation_id) {
+    appendMessageToChat(data.message);
+  } else {
+    // Show unread badge or notification
+    incrementUnreadCount(data.conversation_id);
+  }
+  
   // data.conversation_id: string
   // data.message: message object
 });
@@ -262,6 +274,7 @@ socket.on('conversation:status', (data) => {
 ```
 
 ### Unsubscribe from Conversation
+When user leaves conversation screen:
 ```javascript
 socket.emit('conversation:unsubscribe', {
   conversation_id: 'conversation_uuid'
@@ -270,11 +283,14 @@ socket.emit('conversation:unsubscribe', {
 
 ## Firebase Push Notifications
 
-### Setup
+**Note:** Push notifications are optional since you're using WebSocket for real-time updates. They're useful when the app is in background or killed state.
+
+### Setup (Optional)
+If you want to add push notifications for background support:
 1. Register Firebase Cloud Messaging (FCM) token with the API
 2. Use the notification token registration endpoint
 
-### Register Notification Token
+### Register Notification Token (Optional)
 **Endpoint:** `POST /notifications/tokens`
 **Request Body:**
 ```json
@@ -285,7 +301,7 @@ socket.emit('conversation:unsubscribe', {
 }
 ```
 
-### Handle Push Notifications
+### Handle Push Notifications (Optional)
 When you receive a push notification with `type: "conversation_message"`:
 ```json
 {
