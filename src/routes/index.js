@@ -15,6 +15,7 @@ const ekycRoutes = require('./ekycRoutes');
 const privacyPolicyRoutes = require('./privacyPolicyRoutes');
 const conversationRoutes = require('./conversationRoutes');
 const adminConversationRoutes = require('./adminConversationRoutes');
+const healthRoutes = require('./healthRoutes');
 
 router.use('/auth', authRoutes);
 router.use('/user', userRoutes);
@@ -30,27 +31,6 @@ router.use('/ekyc', ekycRoutes);
 router.use('/privacy-policies', privacyPolicyRoutes);
 router.use('/conversations', conversationRoutes);
 router.use('/admin/conversations', adminConversationRoutes);
-
-router.get('/health', (req, res) => {
-  res.success({ status: 'ok' }, 'CareMate API is running');
-});
-
-router.get('/health/live', (req, res) => {
-  res.status(200).json({ status: 'live', timestamp: new Date().toISOString() });
-});
-
-router.get('/health/ready', async (req, res) => {
-  try {
-    const pool = require('../config/database');
-    await pool.query('SELECT 1');
-    res.status(200).json({ status: 'ready', database: 'ok', timestamp: new Date().toISOString() });
-  } catch (error) {
-    res.status(503).json({
-      status: 'not_ready',
-      database: 'error',
-      timestamp: new Date().toISOString()
-    });
-  }
-});
+router.use('/health', healthRoutes);
 
 module.exports = router;
