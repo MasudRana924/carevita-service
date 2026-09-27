@@ -2,6 +2,8 @@ const { Server } = require('socket.io');
 const { verifyToken } = require('../config/jwt');
 const pool = require('../config/database');
 const liveTrackingService = require('../services/liveTrackingService');
+const redisClient = require('../config/redis');
+const { createAdapter } = require('@socket.io/redis-adapter');
 
 let io = null;
 
@@ -39,14 +41,25 @@ const authenticateSocket = async (socket, next) => {
 };
 
 const initSocket = (httpServer) => {
-  io = new Server(httpServer, {
+  const ioOptions = {
     cors: {
       origin: true,
       credentials: true,
       methods: ['GET', 'POST']
     },
     path: '/socket.io'
-  });
+  };
+
+  // Add Redis adapter for scaling if Redis is available
+  if (redisClient.isReady()) {
+    const pubClient = redisClient.getClient();
+    const subClient = pubClient.duplicate();
+    
+    ioOptions.adapter = createAdapter(pubClient, subClient);
+    console.log('Socket.IO Redis adapter enabled for scaling');
+  }
+
+  io = new Server(httpServer, ioOptions);
 
   io.use(authenticateSocket);
 
