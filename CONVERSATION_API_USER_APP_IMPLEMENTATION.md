@@ -1,7 +1,7 @@
 # Conversation API - User/Caregiver App Implementation Guide
 
 ## Overview
-This guide provides implementation instructions for integrating the conversation/messaging system into the user/caregiver mobile app. Users can send messages to support and receive replies via Firebase push notifications and WebSocket real-time updates.
+This guide provides implementation instructions for integrating the conversation/messaging system into the user/caregiver mobile app. Users can send messages to support and receive replies via Firebase push notifications for instant updates.
 
 ## Base URL
 ```
@@ -213,84 +213,14 @@ Authorization: Bearer <your_jwt_token>
 }
 ```
 
-## WebSocket Integration
-
-**Note:** Since your app already uses WebSocket for live tracking, you can use the same connection for real-time conversation updates. This provides better UX than relying solely on push notifications.
-
-### Connection
-Use your existing WebSocket connection at: `wss://your-api-domain.com/socket.io`
-
-### Authentication
-Pass JWT token via handshake (same as your current setup):
-```javascript
-const socket = io('wss://your-api-domain.com', {
-  auth: {
-    token: 'your_jwt_token'
-  }
-});
-```
-
-### Subscribe to Conversation
-When user opens a conversation screen:
-```javascript
-socket.emit('conversation:subscribe', {
-  conversation_id: 'conversation_uuid'
-}, (response) => {
-  if (response.ok) {
-    console.log('Subscribed to conversation');
-  } else {
-    console.error('Failed to subscribe:', response.message);
-  }
-});
-```
-
-### Listen for New Messages
-Add this to your existing socket event listeners:
-```javascript
-socket.on('conversation:message', (data) => {
-  console.log('New message received:', data.message);
-  
-  // If currently viewing this conversation, append message immediately
-  if (currentConversationId === data.conversation_id) {
-    appendMessageToChat(data.message);
-  } else {
-    // Show unread badge or notification
-    incrementUnreadCount(data.conversation_id);
-  }
-  
-  // data.conversation_id: string
-  // data.message: message object
-});
-```
-
-### Listen for Status Updates
-```javascript
-socket.on('conversation:status', (data) => {
-  console.log('Conversation status changed:', data.status);
-  // Update conversation status in UI
-  // data.conversation_id: string
-  // data.status: 'active' | 'closed' | 'archived'
-});
-```
-
-### Unsubscribe from Conversation
-When user leaves conversation screen:
-```javascript
-socket.emit('conversation:unsubscribe', {
-  conversation_id: 'conversation_uuid'
-});
-```
-
 ## Firebase Push Notifications
 
-**Note:** Push notifications are optional since you're using WebSocket for real-time updates. They're useful when the app is in background or killed state.
+Users receive instant updates via Firebase push notifications when the admin replies to their conversation.
 
-### Setup (Optional)
-If you want to add push notifications for background support:
-1. Register Firebase Cloud Messaging (FCM) token with the API
-2. Use the notification token registration endpoint
+### Setup
+Register Firebase Cloud Messaging (FCM) token with the API to receive push notifications.
 
-### Register Notification Token (Optional)
+### Register Notification Token
 **Endpoint:** `POST /notifications/tokens`
 **Request Body:**
 ```json
@@ -301,7 +231,7 @@ If you want to add push notifications for background support:
 }
 ```
 
-### Handle Push Notifications (Optional)
+### Handle Push Notifications
 When you receive a push notification with `type: "conversation_message"`:
 ```json
 {
@@ -337,7 +267,6 @@ When you receive a push notification with `type: "conversation_message"`:
 - Show different styles for user vs admin messages
 - Support different message types (text, image, document, audio)
 - Show read receipts
-- Real-time updates via WebSocket
 - Pull-to-refresh for message list
 
 ### New Conversation Screen
@@ -359,6 +288,5 @@ Handle these common error responses:
 3. Handle network failures gracefully
 4. Cache conversation data locally
 5. Implement optimistic UI updates
-6. Handle WebSocket reconnection
-7. Respect pagination limits
-8. Implement proper error messages for users
+6. Respect pagination limits
+7. Implement proper error messages for users
