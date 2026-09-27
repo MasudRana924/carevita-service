@@ -1,7 +1,7 @@
 # Conversation API - Admin Panel Implementation Guide
 
 ## Overview
-This guide provides implementation instructions for integrating the conversation/messaging system into the admin panel. Admins can view all user conversations, send replies, and receive real-time updates via WebSocket.
+This guide provides implementation instructions for integrating the conversation/messaging system into the admin panel. Admins can view all user conversations, send replies, and receive updates via page reload.
 
 ## Base URL
 ```
@@ -166,7 +166,6 @@ Authorization: Bearer <your_admin_jwt_token>
 
 **Note:** This endpoint automatically:
 - Sends Firebase push notification to the user
-- Emits WebSocket event to the user
 - Updates conversation unread counts
 
 ### 5. Update Conversation Status
@@ -229,45 +228,20 @@ Authorization: Bearer <your_admin_jwt_token>
 }
 ```
 
-## WebSocket Integration
+## Update Mechanism
 
-**Note:** Admin panel uses page reload for updates. Users use WebSocket for real-time updates. Admin can optionally use WebSocket if needed in future.
+**Note:** Admin panel uses page reload for updates. Users receive instant updates via Firebase push notifications.
 
 ### Current Implementation (Page Reload)
 - Admin manually refreshes the page to see new conversations and messages
 - Simple and reliable approach for admin panel
 - No complex WebSocket connection management required
 
-### Optional WebSocket Enhancement
-If you want to add real-time updates for admin in the future:
-
-Connect to WebSocket at: `wss://your-api-domain.com/socket.io`
-
-### Authentication
-Pass admin JWT token via handshake:
-```javascript
-const socket = io('wss://your-api-domain.com', {
-  auth: {
-    token: 'your_admin_jwt_token'
-  }
-});
-```
-
-### Automatic Admin Room Join
-Admin users are automatically joined to the `admin` room upon connection. You don't need to manually join.
-
-### Listen for New Messages (Optional)
-```javascript
-socket.on('conversation:message', (data) => {
-  console.log('New message received:', data.message);
-  console.log('Conversation ID:', data.conversation_id);
-  // Update conversation list with new message preview
-  // If currently viewing this conversation, append message
-  // Show notification if not viewing the conversation
-  // data.conversation_id: string
-  // data.message: message object
-});
-```
+### Optional Auto-Refresh Enhancement
+If you want to add near real-time updates for admin in the future:
+- Implement auto-refresh interval (e.g., every 30 seconds)
+- Use polling to fetch new conversations and messages
+- Show visual indicator when new data is available
 
 ## UI Implementation Recommendations
 
@@ -304,36 +278,18 @@ socket.on('conversation:message', (data) => {
 
 ## Real-time Features
 
-**Note:** Admin panel primarily uses page reload for updates. WebSocket features are optional for future enhancement.
+**Note:** Admin panel uses page reload for updates. Users receive instant updates via Firebase push notifications.
 
 ### Current Implementation (Page Reload)
 - Admin manually refreshes the page to see new conversations and messages
 - Simple and reliable approach for admin panel
 - No complex WebSocket connection management required
 
-### Optional WebSocket Enhancement
-If you want to add real-time updates in the future:
-
-### New Conversation Notifications
-When a user creates a new conversation:
-1. WebSocket event `conversation:new` is emitted
-2. Show toast/notification to admin
-3. Add conversation to list with highlight
-4. Play notification sound (optional)
-
-### New Message Notifications
-When a user sends a message:
-1. WebSocket event `conversation:message` is emitted
-2. Update conversation in list with new message preview
-3. Increment unread count
-4. If admin is viewing the conversation, append message immediately
-5. If not viewing, show notification
-
-### Status Change Notifications
-When conversation status changes:
-1. WebSocket event `conversation:status` is emitted
-2. Update status in conversation list
-3. Update status in detail view if open
+### Optional Auto-Refresh Enhancement
+If you want to add near real-time updates in the future:
+- Implement auto-refresh interval (e.g., every 30 seconds)
+- Use polling to fetch new conversations and messages
+- Show visual indicator when new data is available
 
 ## Error Handling
 Handle these common error responses:
@@ -346,14 +302,14 @@ Handle these common error responses:
 ## Best Practices
 1. Store admin JWT token securely
 2. Implement token refresh logic
-3. Handle WebSocket reconnection gracefully
-4. Implement proper error messages
-5. Use optimistic UI updates for better UX
-6. Implement conversation filtering and search
-7. Show loading states during API calls
-8. Handle network failures gracefully
-9. Implement pagination for large conversation lists
-10. Cache conversation data locally for performance
+3. Implement proper error messages
+4. Use optimistic UI updates for better UX
+5. Implement conversation filtering and search
+6. Show loading states during API calls
+7. Handle network failures gracefully
+8. Implement pagination for large conversation lists
+9. Cache conversation data locally for performance
+10. Consider adding auto-refresh interval for near real-time updates
 
 ## Security Considerations
 1. Always verify admin role on client side

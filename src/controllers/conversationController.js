@@ -66,10 +66,6 @@ exports.createConversation = async (req, res) => {
         message_type: 'text',
         message: first_message
       });
-      
-      // Emit via WebSocket to admin
-      const { emitNewMessage } = require('../realtime/conversationSocket');
-      emitNewMessage(conversation.id, message);
     }
 
     return res.success(conversation, 'Conversation created successfully');
@@ -124,10 +120,6 @@ exports.sendMessage = async (req, res) => {
       message_type,
       message
     });
-
-    // Emit via WebSocket to admin
-    const { emitNewMessage } = require('../realtime/conversationSocket');
-    emitNewMessage(conversationId, newMessage);
 
     return res.success(newMessage, 'Message sent successfully');
   } catch (error) {
