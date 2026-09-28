@@ -52,4 +52,54 @@ upload.optionalSingle = (fieldName) => (req, res, next) => {
   });
 };
 
+const CHAT_IMAGE_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+const CHAT_ALLOWED_TYPES = [...CHAT_IMAGE_TYPES, 'application/pdf'];
+
+// PDFs go to Cloudinary as `raw`: image-type PDF delivery is blocked by default on many accounts.
+const chatStorage = new CloudinaryStorage({
+  cloudinary: cloudinary.v2,
+  params: async (req, file) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    const isPdf = file.mimetype === 'application/pdf';
+    return {
+      folder: 'caremate/chat',
+      resource_type: isPdf ? 'raw' : 'image',
+      public_id: isPdf ? `chat-${uniqueSuffix}.pdf` : `chat-${uniqueSuffix}`,
+    };
+  },
+});
+
+const chatUpload = multer({
+  storage: chatStorage,
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (CHAT_ALLOWED_TYPES.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      const err = new Error('Invalid file type. Only JPEG, PNG, WEBP images and PDF are allowed.');
+      err.statusCode = 400;
+      cb(err, false);
+    }
+  },
+});
+
+upload.chatAttachment = (fieldName = 'file') => (req, res, next) => {
+  const contentType = String(req.headers['content-type'] || '');
+  if (!contentType.includes('multipart/form-data')) {
+    return next();
+  }
+
+  chatUpload.single(fieldName)(req, res, (err) => {
+    if (!err) return next();
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      err.message = 'File too large. Maximum size is 10MB.';
+    }
+    err.statusCode = err.statusCode || 400;
+    err.code = 'VALIDATION_ERROR';
+    return next(err);
+  });
+};
+
+upload.CHAT_IMAGE_TYPES = CHAT_IMAGE_TYPES;
+
 module.exports = upload;

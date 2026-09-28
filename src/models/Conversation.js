@@ -1,273 +1,298 @@
 const pool = require('../config/database');
 
-// Conversation operations
-const createConversation = async ({ user_id, subject }) => {
-  const query = `
-    INSERT INTO conversations (user_id, subject, user_unread_count, admin_unread_count)
-    VALUES ($1, $2, 0, 0)
-    RETURNING *
-  `;
-  const values = [user_id, subject];
-  const result = await pool.query(query, values);
+const MESSAGE_COLUMNS = `
+  m.id, m.conversation_id, m.sender_id, m.sender_role, m.message_type, m.message,
+  m.attachment_url, m.attachment_name, m.attachment_mime, m.attachment_size,
+  m.client_message_id, m.is_read, m.read_at, m.created_at, m.updated_at,
+  u.name AS sender_name, u.profile_photo AS sender_photo
+`;
+
+const CONVERSATION_WITH_USER = `
+  SELECT c.*,
+         u.name AS user_name,
+         u.phone AS user_phone,
+         u.email AS user_email,
+         u.profile_photo AS user_photo,
+         u.role AS user_role
+  FROM conversations c
+  LEFT JOIN users u ON c.user_id = u.id
+`;
+
+const previewFor = ({ message_type, message, attachment_name }) => {
+  const text = (message || '').trim();
+  if (text) return text.slice(0, 200);
+  if (message_type === 'image') return 'Photo';
+  return attachment_name ? `Document: ${attachment_name}` : 'Document';
+};
+
+// One conversation per user; safe under concurrent first-open because of uq_conversations_user_id.
+const getOrCreateConversationForUser = async (user_id) => {
+  await pool.query(
+    `INSERT INTO conversations (user_id, subject, status)
+     VALUES ($1, 'Support', 'active')
+     ON CONFLICT (user_id) DO NOTHING`,
+    [user_id]
+  );
+  const result = await pool.query(`${CONVERSATION_WITH_USER} WHERE c.user_id = $1`, [user_id]);
   return result.rows[0];
-};
-
-const getConversationsByUserId = async (user_id, filters = {}) => {
-  let query = `
-    SELECT c.*, 
-           (SELECT COUNT(*) FROM messages m WHERE m.conversation_id = c.id) as message_count
-    FROM conversations c
-    WHERE c.user_id = $1
-  `;
-  const values = [user_id];
-  let paramCount = 1;
-
-  if (filters.status) {
-    paramCount++;
-    query += ` AND c.status = $${paramCount}`;
-    values.push(filters.status);
-  }
-
-  query += ' ORDER BY c.updated_at DESC';
-
-  if (filters.limit) {
-    paramCount++;
-    query += ` LIMIT $${paramCount}`;
-    values.push(parseInt(filters.limit));
-  }
-
-  if (filters.offset) {
-    paramCount++;
-    query += ` OFFSET $${paramCount}`;
-    values.push(parseInt(filters.offset));
-  }
-
-  const result = await pool.query(query, values);
-  return result.rows;
-};
-
-const getAllConversations = async (filters = {}) => {
-  let query = `
-    SELECT c.*, 
-           u.name as user_name,
-           u.phone as user_phone,
-           u.email as user_email,
-           (SELECT COUNT(*) FROM messages m WHERE m.conversation_id = c.id) as message_count
-    FROM conversations c
-    LEFT JOIN users u ON c.user_id = u.id
-    WHERE 1=1
-  `;
-  const values = [];
-  let paramCount = 0;
-
-  if (filters.status) {
-    paramCount++;
-    query += ` AND c.status = $${paramCount}`;
-    values.push(filters.status);
-  }
-
-  if (filters.search) {
-    paramCount++;
-    query += ` AND (u.name ILIKE $${paramCount} OR u.phone ILIKE $${paramCount} OR u.email ILIKE $${paramCount} OR c.subject ILIKE $${paramCount})`;
-    values.push(`%${filters.search}%`);
-  }
-
-  query += ' ORDER BY c.updated_at DESC';
-
-  if (filters.limit) {
-    paramCount++;
-    query += ` LIMIT $${paramCount}`;
-    values.push(parseInt(filters.limit));
-  }
-
-  if (filters.offset) {
-    paramCount++;
-    query += ` OFFSET $${paramCount}`;
-    values.push(parseInt(filters.offset));
-  }
-
-  const result = await pool.query(query, values);
-  return result.rows;
 };
 
 const getConversationById = async (id) => {
-  const query = `
-    SELECT c.*, 
-           u.name as user_name,
-           u.phone as user_phone,
-           u.email as user_email
-    FROM conversations c
-    LEFT JOIN users u ON c.user_id = u.id
-    WHERE c.id = $1
-  `;
-  const result = await pool.query(query, [id]);
+  const result = await pool.query(`${CONVERSATION_WITH_USER} WHERE c.id = $1`, [id]);
   return result.rows[0];
 };
 
-const getConversationByIdForUser = async (id, user_id) => {
-  const query = `
-    SELECT c.* 
-    FROM conversations c
-    WHERE c.id = $1 AND c.user_id = $2
-  `;
-  const result = await pool.query(query, [id, user_id]);
+const buildAdminListFilters = (filters = {}) => {
+  const where = ['c.last_message_at IS NOT NULL'];
+  const values = [];
+
+  if (filters.status) {
+    values.push(filters.status);
+    where.push(`c.status = $${values.length}`);
+  }
+  if (filters.unread_only) {
+    where.push('c.admin_unread_count > 0');
+  }
+  if (filters.search) {
+    values.push(`%${filters.search}%`);
+    where.push(`(u.name ILIKE $${values.length} OR u.phone ILIKE $${values.length} OR u.email ILIKE $${values.length})`);
+  }
+
+  return { where: `WHERE ${where.join(' AND ')}`, values };
+};
+
+const getAllConversations = async (filters = {}) => {
+  const { where, values } = buildAdminListFilters(filters);
+  values.push(filters.limit || 20, filters.offset || 0);
+  const result = await pool.query(
+    `${CONVERSATION_WITH_USER}
+     ${where}
+     ORDER BY c.last_message_at DESC
+     LIMIT $${values.length - 1} OFFSET $${values.length}`,
+    values
+  );
+  return result.rows;
+};
+
+const countConversations = async (filters = {}) => {
+  const { where, values } = buildAdminListFilters(filters);
+  const result = await pool.query(
+    `SELECT COUNT(*)::int AS count FROM conversations c LEFT JOIN users u ON c.user_id = u.id ${where}`,
+    values
+  );
+  return result.rows[0].count;
+};
+
+const getAdminUnreadSummary = async () => {
+  const result = await pool.query(`
+    SELECT COALESCE(SUM(admin_unread_count), 0)::int AS unread_messages,
+           COUNT(*) FILTER (WHERE admin_unread_count > 0)::int AS unread_conversations
+    FROM conversations
+  `);
   return result.rows[0];
 };
 
 const updateConversationStatus = async (id, status) => {
-  const query = `
-    UPDATE conversations 
-    SET status = $1, updated_at = CURRENT_TIMESTAMP
-    WHERE id = $2
-    RETURNING *
-  `;
-  const result = await pool.query(query, [status, id]);
+  const result = await pool.query(
+    `UPDATE conversations SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 RETURNING *`,
+    [status, id]
+  );
   return result.rows[0];
 };
 
-const updateConversationUnreadCounts = async (conversation_id) => {
-  const query = `
-    UPDATE conversations 
-    SET 
-      user_unread_count = (SELECT COUNT(*) FROM messages WHERE conversation_id = $1 AND sender_role = 'admin' AND is_read = false),
-      admin_unread_count = (SELECT COUNT(*) FROM messages WHERE conversation_id = $1 AND sender_role = 'user' AND is_read = false),
-      last_message_at = (SELECT created_at FROM messages WHERE conversation_id = $1 ORDER BY created_at DESC LIMIT 1),
-      last_message_preview = (SELECT message FROM messages WHERE conversation_id = $1 ORDER BY created_at DESC LIMIT 1),
-      updated_at = CURRENT_TIMESTAMP
-    WHERE id = $1
-    RETURNING *
-  `;
-  const result = await pool.query(query, [conversation_id]);
+const refreshConversationCounters = async (client, conversation_id) => {
+  const result = await client.query(
+    `UPDATE conversations SET
+       user_unread_count = (SELECT COUNT(*) FROM messages WHERE conversation_id = $1 AND sender_role = 'admin' AND is_read = false),
+       admin_unread_count = (SELECT COUNT(*) FROM messages WHERE conversation_id = $1 AND sender_role = 'user' AND is_read = false),
+       updated_at = CURRENT_TIMESTAMP
+     WHERE id = $1
+     RETURNING *`,
+    [conversation_id]
+  );
   return result.rows[0];
 };
 
-const countConversations = async (filters = {}) => {
-  let query = 'SELECT COUNT(*)::int AS count FROM conversations c LEFT JOIN users u ON c.user_id = u.id WHERE 1=1';
-  const values = [];
-  let paramCount = 0;
-
-  if (filters.status) {
-    paramCount++;
-    query += ` AND c.status = $${paramCount}`;
-    values.push(filters.status);
-  }
-
-  if (filters.search) {
-    paramCount++;
-    query += ` AND (u.name ILIKE $${paramCount} OR u.phone ILIKE $${paramCount} OR u.email ILIKE $${paramCount} OR c.subject ILIKE $${paramCount})`;
-    values.push(`%${filters.search}%`);
-  }
-
-  const result = await pool.query(query, values);
-  return result.rows[0].count;
-};
-
-const countUserConversations = async (user_id, filters = {}) => {
-  let query = 'SELECT COUNT(*)::int AS count FROM conversations WHERE user_id = $1';
-  const values = [user_id];
-  let paramCount = 1;
-
-  if (filters.status) {
-    paramCount++;
-    query += ` AND status = $${paramCount}`;
-    values.push(filters.status);
-  }
-
-  const result = await pool.query(query, values);
-  return result.rows[0].count;
-};
-
-// Message operations
-const createMessage = async ({ conversation_id, sender_id, sender_role, message_type, message }) => {
-  const query = `
-    INSERT INTO messages (conversation_id, sender_id, sender_role, message_type, message)
-    VALUES ($1, $2, $3, $4, $5)
-    RETURNING *
-  `;
-  const values = [
-    conversation_id,
-    sender_id,
-    sender_role,
-    message_type,
-    message
-  ];
-  const result = await pool.query(query, values);
-  
-  // Update conversation metadata
-  await updateConversationUnreadCounts(conversation_id);
-  
+const getMessageById = async (id) => {
+  const result = await pool.query(
+    `SELECT ${MESSAGE_COLUMNS} FROM messages m LEFT JOIN users u ON u.id = m.sender_id WHERE m.id = $1`,
+    [id]
+  );
   return result.rows[0];
 };
 
-const getMessagesByConversationId = async (conversation_id, filters = {}) => {
-  let query = 'SELECT * FROM messages WHERE conversation_id = $1';
+/**
+ * Insert a message, mark the other side's messages as read (replying implies you saw them),
+ * and update the thread's last-message metadata. Returns { message, conversation, duplicate }.
+ */
+const createMessage = async ({
+  conversation_id,
+  sender_id,
+  sender_role,
+  message_type = 'text',
+  message = null,
+  attachment = null,
+  client_message_id = null
+}) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    if (client_message_id) {
+      const existing = await client.query(
+        'SELECT id FROM messages WHERE conversation_id = $1 AND client_message_id = $2',
+        [conversation_id, client_message_id]
+      );
+      if (existing.rows[0]) {
+        await client.query('ROLLBACK');
+        const [dup, conversation] = await Promise.all([
+          getMessageById(existing.rows[0].id),
+          getConversationById(conversation_id)
+        ]);
+        return { message: dup, conversation, duplicate: true };
+      }
+    }
+
+    const inserted = await client.query(
+      `INSERT INTO messages (
+         conversation_id, sender_id, sender_role, message_type, message,
+         attachment_url, attachment_name, attachment_mime, attachment_size, attachment_public_id,
+         client_message_id
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+       RETURNING id, created_at`,
+      [
+        conversation_id,
+        sender_id,
+        sender_role,
+        message_type,
+        message,
+        attachment?.url || null,
+        attachment?.name || null,
+        attachment?.mime || null,
+        attachment?.size || null,
+        attachment?.public_id || null,
+        client_message_id
+      ]
+    );
+
+    const otherRole = sender_role === 'admin' ? 'user' : 'admin';
+    await client.query(
+      `UPDATE messages SET is_read = true, read_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+       WHERE conversation_id = $1 AND sender_role = $2 AND is_read = false`,
+      [conversation_id, otherRole]
+    );
+
+    await client.query(
+      `UPDATE conversations SET
+         last_message_at = $2,
+         last_message_preview = $3,
+         last_message_sender_role = $4,
+         status = 'active'
+       WHERE id = $1`,
+      [
+        conversation_id,
+        inserted.rows[0].created_at,
+        previewFor({ message_type, message, attachment_name: attachment?.name }),
+        sender_role
+      ]
+    );
+    await refreshConversationCounters(client, conversation_id);
+
+    await client.query('COMMIT');
+
+    const [created, conversation] = await Promise.all([
+      getMessageById(inserted.rows[0].id),
+      getConversationById(conversation_id)
+    ]);
+    return { message: created, conversation, duplicate: false };
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+};
+
+/**
+ * Cursor pagination over one thread. Always returns messages oldest -> newest.
+ * - no cursor: latest `limit` messages
+ * - before=<messageId>: older history (scroll up)
+ * - after=<messageId>: messages newer than the one the client already has (refresh)
+ */
+const getMessages = async (conversation_id, { before, after, limit = 30 } = {}) => {
   const values = [conversation_id];
-  let paramCount = 1;
+  let cursorClause = '';
+  let order = 'DESC';
 
-  if (filters.sender_role) {
-    paramCount++;
-    query += ` AND sender_role = $${paramCount}`;
-    values.push(filters.sender_role);
+  const cursorId = before || after;
+  if (cursorId) {
+    const cursor = await pool.query(
+      'SELECT 1 FROM messages WHERE id = $1 AND conversation_id = $2',
+      [cursorId, conversation_id]
+    );
+    if (!cursor.rows[0]) {
+      const err = new Error('Invalid message cursor');
+      err.statusCode = 400;
+      throw err;
+    }
+    // Compare in SQL: JS Date would drop Postgres microseconds and break the cursor.
+    values.push(cursorId);
+    const cursorRow = '(SELECT c.created_at, c.id FROM messages c WHERE c.id = $2)';
+    if (before) {
+      cursorClause = `AND (m.created_at, m.id) < ${cursorRow}`;
+    } else {
+      cursorClause = `AND (m.created_at, m.id) > ${cursorRow}`;
+      order = 'ASC';
+    }
   }
 
-  query += ' ORDER BY created_at ASC';
+  values.push(limit + 1);
+  const result = await pool.query(
+    `SELECT ${MESSAGE_COLUMNS}
+     FROM messages m
+     LEFT JOIN users u ON u.id = m.sender_id
+     WHERE m.conversation_id = $1 ${cursorClause}
+     ORDER BY m.created_at ${order}, m.id ${order}
+     LIMIT $${values.length}`,
+    values
+  );
 
-  if (filters.limit) {
-    paramCount++;
-    query += ` LIMIT $${paramCount}`;
-    values.push(parseInt(filters.limit));
-  }
-
-  if (filters.offset) {
-    paramCount++;
-    query += ` OFFSET $${paramCount}`;
-    values.push(parseInt(filters.offset));
-  }
-
-  const result = await pool.query(query, values);
-  return result.rows;
+  const has_more = result.rows.length > limit;
+  const rows = result.rows.slice(0, limit);
+  if (order === 'DESC') rows.reverse();
+  return { messages: rows, has_more };
 };
 
 const markMessagesAsRead = async (conversation_id, sender_role) => {
-  const query = `
-    UPDATE messages 
-    SET is_read = true, read_at = CURRENT_TIMESTAMP
-    WHERE conversation_id = $1 AND sender_role = $2 AND is_read = false
-    RETURNING *
-  `;
-  const result = await pool.query(query, [conversation_id, sender_role]);
-  
-  // Update conversation unread counts
-  await updateConversationUnreadCounts(conversation_id);
-  
-  return result.rows;
-};
-
-const getUnreadMessageCount = async (conversation_id, sender_role) => {
-  const query = `
-    SELECT COUNT(*)::int AS count 
-    FROM messages 
-    WHERE conversation_id = $1 AND sender_role = $2 AND is_read = false
-  `;
-  const result = await pool.query(query, [conversation_id, sender_role]);
-  return result.rows[0].count;
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const result = await client.query(
+      `UPDATE messages SET is_read = true, read_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+       WHERE conversation_id = $1 AND sender_role = $2 AND is_read = false
+       RETURNING id`,
+      [conversation_id, sender_role]
+    );
+    const conversation = await refreshConversationCounters(client, conversation_id);
+    await client.query('COMMIT');
+    return { marked: result.rowCount, conversation };
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
 };
 
 module.exports = {
-  // Conversation operations
-  createConversation,
-  getConversationsByUserId,
-  getAllConversations,
+  getOrCreateConversationForUser,
   getConversationById,
-  getConversationByIdForUser,
-  updateConversationStatus,
-  updateConversationUnreadCounts,
+  getAllConversations,
   countConversations,
-  countUserConversations,
-  
-  // Message operations
+  getAdminUnreadSummary,
+  updateConversationStatus,
   createMessage,
-  getMessagesByConversationId,
-  markMessagesAsRead,
-  getUnreadMessageCount
+  getMessages,
+  getMessageById,
+  markMessagesAsRead
 };

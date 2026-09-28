@@ -1,162 +1,166 @@
+const pool = require('../config/database');
 const {
   getAllConversations,
   getConversationById,
-  getMessagesByConversationId,
-  createMessage,
-  markMessagesAsRead,
+  getOrCreateConversationForUser,
+  getMessages,
+  getAdminUnreadSummary,
   updateConversationStatus,
   countConversations
 } = require('../models/Conversation');
 const { parsePagination } = require('../utils/pagination');
-const { sendPushNotification } = require('../services/notificationService');
-const { getUserTokens } = require('../models/NotificationToken');
+const supportChat = require('../services/supportChatService');
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+const parseMessageQuery = (query = {}) => ({
+  before: query.before || undefined,
+  after: query.after || undefined,
+  limit: Math.min(Math.max(parseInt(query.limit, 10) || 30, 1), 100)
+});
+
+const handleError = (res, error, fallback) => {
+  if (error.statusCode === 400) return res.badRequest(error.message);
+  console.error(`${fallback}:`, error);
+  return res.serverError(fallback);
+};
+
+const loadConversation = async (req, res) => {
+  if (!UUID_RE.test(req.params.id)) {
+    res.badRequest('Invalid conversation id');
+    return null;
+  }
+  const conversation = await getConversationById(req.params.id);
+  if (!conversation) {
+    res.notFound('Conversation not found');
+    return null;
+  }
+  return conversation;
+};
 
 /**
- * Get all conversations (admin)
+ * Admin inbox: one row per user, latest activity first.
  */
 exports.getAllConversations = async (req, res) => {
   try {
     const { status, search } = req.query;
+    const unread_only = ['true', '1'].includes(String(req.query.unread_only || '').toLowerCase());
     const { page, limit, offset } = parsePagination(req.query);
 
     const [conversations, total] = await Promise.all([
-      getAllConversations({ status, search, limit, offset }),
-      countConversations({ status, search })
+      getAllConversations({ status, search, unread_only, limit, offset }),
+      countConversations({ status, search, unread_only })
     ]);
 
     return res.paginated(conversations, { page, limit, total }, 'Conversations fetched successfully');
   } catch (error) {
-    console.error('Get all conversations error:', error);
-    return res.serverError('Failed to fetch conversations');
+    return handleError(res, error, 'Failed to fetch conversations');
   }
 };
 
-/**
- * Get single conversation details (admin)
- */
-exports.getConversation = async (req, res) => {
+exports.getUnreadSummary = async (req, res) => {
   try {
-    const conversation = await getConversationById(req.params.id);
-    if (!conversation) {
-      return res.notFound('Conversation not found');
+    const summary = await getAdminUnreadSummary();
+    return res.success(summary, 'Unread summary fetched successfully');
+  } catch (error) {
+    return handleError(res, error, 'Failed to fetch unread summary');
+  }
+};
+
+/** Open (or create) the thread with a specific user so admin can message first. */
+exports.getConversationForUser = async (req, res) => {
+  try {
+    if (!UUID_RE.test(req.params.userId)) {
+      return res.badRequest('Invalid user id');
     }
+    const user = await pool.query('SELECT id FROM users WHERE id = $1', [req.params.userId]);
+    if (!user.rows[0]) {
+      return res.notFound('User not found');
+    }
+    const conversation = await getOrCreateConversationForUser(req.params.userId);
     return res.success(conversation, 'Conversation fetched successfully');
   } catch (error) {
-    console.error('Get conversation error:', error);
-    return res.serverError('Failed to fetch conversation');
+    return handleError(res, error, 'Failed to fetch conversation');
   }
 };
 
-/**
- * Get messages for a conversation (admin)
- */
+exports.getConversation = async (req, res) => {
+  try {
+    const conversation = await loadConversation(req, res);
+    if (!conversation) return undefined;
+    return res.success(conversation, 'Conversation fetched successfully');
+  } catch (error) {
+    return handleError(res, error, 'Failed to fetch conversation');
+  }
+};
+
 exports.getConversationMessages = async (req, res) => {
   try {
-    const conversationId = req.params.id;
-    const conversation = await getConversationById(conversationId);
-    if (!conversation) {
-      return res.notFound('Conversation not found');
+    const conversation = await loadConversation(req, res);
+    if (!conversation) return undefined;
+
+    const query = parseMessageQuery(req.query);
+    const { messages, has_more } = await getMessages(conversation.id, query);
+
+    let current = conversation;
+    if (!query.before) {
+      const read = await supportChat.markRead({ conversation, readerRole: 'admin' });
+      current = read.conversation ? { ...conversation, ...read.conversation } : conversation;
     }
 
-    const { page, limit, offset } = parsePagination(req.query);
-    const messages = await getMessagesByConversationId(conversationId, { limit, offset });
-
-    // Mark user messages as read
-    await markMessagesAsRead(conversationId, 'user');
-
-    return res.success(messages, 'Messages fetched successfully');
+    return res.success(messages, 'Messages fetched successfully', { conversation: current, has_more });
   } catch (error) {
-    console.error('Get conversation messages error:', error);
-    return res.serverError('Failed to fetch messages');
+    return handleError(res, error, 'Failed to fetch messages');
   }
 };
 
-/**
- * Admin reply to conversation
- */
 exports.replyToConversation = async (req, res) => {
   try {
-    const conversationId = req.params.id;
-    const { message_type = 'text', message } = req.body;
+    const conversation = await loadConversation(req, res);
+    if (!conversation) return undefined;
 
-    const conversation = await getConversationById(conversationId);
-    if (!conversation) {
-      return res.notFound('Conversation not found');
-    }
-
-    const newMessage = await createMessage({
-      conversation_id: conversationId,
-      sender_id: req.user.id,
-      sender_role: 'admin',
-      message_type,
-      message
+    const input = supportChat.parseMessageInput(req);
+    const result = await supportChat.sendMessage({
+      conversation,
+      sender: req.user,
+      senderRole: 'admin',
+      input
     });
 
-    // Send push notification to user
-    const tokens = await getUserTokens(conversation.user_id);
-    if (tokens && tokens.length > 0) {
-      const validTokens = tokens.filter(t => t.is_active).map(t => t.token);
-      
-      if (validTokens.length > 0) {
-        await sendPushNotification({
-          tokens: validTokens,
-          title: 'New message from support',
-          body: message.substring(0, 100) + (message.length > 100 ? '...' : ''),
-          data: {
-            type: 'conversation_message',
-            conversation_id: conversationId,
-            message_id: newMessage.id
-          }
-        });
-      }
-    }
-
-    return res.success(newMessage, 'Reply sent successfully');
+    return res.created(result.message, 'Reply sent successfully', { conversation: result.conversation });
   } catch (error) {
-    console.error('Reply to conversation error:', error);
-    return res.serverError('Failed to send reply');
+    return handleError(res, error, 'Failed to send reply');
   }
 };
 
-/**
- * Update conversation status (admin)
- */
 exports.updateConversationStatus = async (req, res) => {
   try {
     const { status } = req.body;
-    const conversationId = req.params.id;
-    
     if (!['active', 'closed', 'archived'].includes(status)) {
       return res.badRequest('Invalid status. Must be active, closed, or archived');
     }
 
-    const conversation = await updateConversationStatus(conversationId, status);
-    if (!conversation) {
-      return res.notFound('Conversation not found');
-    }
+    const existing = await loadConversation(req, res);
+    if (!existing) return undefined;
 
+    const conversation = await updateConversationStatus(existing.id, status);
     return res.success(conversation, 'Conversation status updated successfully');
   } catch (error) {
-    console.error('Update conversation status error:', error);
-    return res.serverError('Failed to update conversation status');
+    return handleError(res, error, 'Failed to update conversation status');
   }
 };
 
-/**
- * Mark messages as read (admin)
- */
 exports.markAsRead = async (req, res) => {
   try {
-    const conversationId = req.params.id;
-    const conversation = await getConversationById(conversationId);
-    if (!conversation) {
-      return res.notFound('Conversation not found');
-    }
+    const conversation = await loadConversation(req, res);
+    if (!conversation) return undefined;
 
-    const messages = await markMessagesAsRead(conversationId, 'user');
-    return res.success(messages, 'Messages marked as read');
+    const result = await supportChat.markRead({ conversation, readerRole: 'admin' });
+    return res.success(
+      { marked: result.marked, conversation: result.conversation },
+      'Messages marked as read'
+    );
   } catch (error) {
-    console.error('Mark as read error:', error);
-    return res.serverError('Failed to mark as read');
+    return handleError(res, error, 'Failed to mark as read');
   }
 };
