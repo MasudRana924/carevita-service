@@ -85,7 +85,27 @@ For a self booking:
 
 Use the same patient row the app already renders for family members. When `book_for === "SELF"`, label it **Myself** / the user's name. Do not look up a family member by id.
 
-Family bookings still use `family_member_*` from the family member. Do not change that rendering.
+Family bookings still use `family_member_*`. Do not change that rendering.
+
+Each booking also includes a `patient` object. Prefer this when you touch booking UI. Keep reading `family_member_*` until every screen uses `patient`.
+
+```json
+{
+  "book_for": "SELF",
+  "family_member_id": null,
+  "patient": {
+    "source": "SELF",
+    "family_member_id": null,
+    "name": "Rafi",
+    "relationship": "Self",
+    "district": "Dhaka",
+    "thana": "Dhanmondi",
+    "house": "House 12"
+  }
+}
+```
+
+`patient.source` is `"SELF"` or `"FAMILY"`. `patient.house` is omitted for a caregiver until they accept. The name and address are frozen at booking time. Editing the profile or the family member later does not change an existing booking.
 
 ## UI to add
 

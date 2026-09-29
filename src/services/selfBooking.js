@@ -80,10 +80,38 @@ const buildSelfPatientSnapshot = (user, body = {}) => {
   };
 };
 
+/**
+ * Freezes the family member as they were when the booking was created.
+ * Later edits to the family member do not change this booking.
+ */
+const buildFamilyPatientSnapshot = (member) => {
+  const name = textOrNull(member?.name);
+  if (!name) {
+    throw badRequest('Family member name is required');
+  }
+
+  return {
+    name,
+    phone: textOrNull(member.phone),
+    photo: textOrNull(member.photo),
+    relationship: textOrNull(member.relationship),
+    date_of_birth: dateOnly(member.date_of_birth),
+    district: textOrNull(member.district),
+    thana: textOrNull(member.thana),
+    house: textOrNull(member.house),
+    blood_group: textOrNull(member.blood_group),
+    medical_history: textOrNull(member.medical_history),
+    existing_conditions: textOrNull(member.existing_conditions),
+    allergies: textOrNull(member.allergies),
+    current_medications: textOrNull(member.current_medications)
+  };
+};
+
 module.exports = {
   BOOK_FOR_SELF,
   BOOK_FOR_FAMILY,
   resolveBookFor,
   assertBookingSubject,
-  buildSelfPatientSnapshot
+  buildSelfPatientSnapshot,
+  buildFamilyPatientSnapshot
 };

@@ -1,33 +1,57 @@
 const pool = require('../../config/database');
 
+const frozen = (snapshotKey, liveSql) => `
+  CASE
+    WHEN b.patient_snapshot IS NOT NULL THEN b.patient_snapshot->>'${snapshotKey}'
+    ELSE ${liveSql}
+  END
+`;
+
 const FAMILY_MEMBER_COLUMNS = `
-  COALESCE(fm.name, b.patient_snapshot->>'name') AS family_member_name,
-  COALESCE(fm.photo, b.patient_snapshot->>'photo') AS family_member_photo,
-  COALESCE(fm.relationship, b.patient_snapshot->>'relationship') AS family_member_relationship,
-  COALESCE(fm.blood_group, b.patient_snapshot->>'blood_group') AS family_member_blood_group,
-  COALESCE(fm.date_of_birth::text, b.patient_snapshot->>'date_of_birth') AS family_member_dob,
-  COALESCE(fm.district, b.patient_snapshot->>'district') AS family_member_district,
-  COALESCE(fm.thana, b.patient_snapshot->>'thana') AS family_member_thana,
-  COALESCE(fm.house, b.patient_snapshot->>'house') AS family_member_house
+  ${frozen('name', 'fm.name')} AS family_member_name,
+  ${frozen('photo', 'fm.photo')} AS family_member_photo,
+  ${frozen('relationship', 'fm.relationship')} AS family_member_relationship,
+  ${frozen('blood_group', 'fm.blood_group')} AS family_member_blood_group,
+  ${frozen('date_of_birth', 'fm.date_of_birth::text')} AS family_member_dob,
+  ${frozen('district', 'fm.district')} AS family_member_district,
+  ${frozen('thana', 'fm.thana')} AS family_member_thana,
+  ${frozen('house', 'fm.house')} AS family_member_house
 `;
 
 const FAMILY_MEMBER_PHI = `
-  COALESCE(fm.medical_history, b.patient_snapshot->>'medical_history') AS family_member_medical_history,
-  COALESCE(fm.existing_conditions, b.patient_snapshot->>'existing_conditions') AS family_member_existing_conditions,
-  COALESCE(fm.allergies, b.patient_snapshot->>'allergies') AS family_member_allergies,
-  COALESCE(fm.current_medications, b.patient_snapshot->>'current_medications') AS family_member_current_medications,
-  COALESCE(fm.allergies, b.patient_snapshot->>'allergies') AS allergies,
-  COALESCE(fm.existing_conditions, b.patient_snapshot->>'existing_conditions') AS existing_conditions,
-  COALESCE(fm.current_medications, b.patient_snapshot->>'current_medications') AS current_medications,
-  COALESCE(fm.medical_history, b.patient_snapshot->>'medical_history') AS medical_history
+  ${frozen('medical_history', 'fm.medical_history')} AS family_member_medical_history,
+  ${frozen('existing_conditions', 'fm.existing_conditions')} AS family_member_existing_conditions,
+  ${frozen('allergies', 'fm.allergies')} AS family_member_allergies,
+  ${frozen('current_medications', 'fm.current_medications')} AS family_member_current_medications,
+  ${frozen('allergies', 'fm.allergies')} AS allergies,
+  ${frozen('existing_conditions', 'fm.existing_conditions')} AS existing_conditions,
+  ${frozen('current_medications', 'fm.current_medications')} AS current_medications,
+  ${frozen('medical_history', 'fm.medical_history')} AS medical_history
 `;
+
+const attachPatient = (row) => {
+  const source = String(row.book_for || 'FAMILY').toUpperCase() === 'SELF' ? 'SELF' : 'FAMILY';
+  row.patient = {
+    source,
+    family_member_id: row.family_member_id || null,
+    name: row.family_member_name || null,
+    relationship: row.family_member_relationship || null,
+    photo: row.family_member_photo || null,
+    blood_group: row.family_member_blood_group || null,
+    date_of_birth: row.family_member_dob || null,
+    district: row.family_member_district || null,
+    thana: row.family_member_thana || null,
+    house: row.family_member_house || null
+  };
+  return row;
+};
 
 const publishBooking = (row) => {
   if (!row) return row;
   if (Object.prototype.hasOwnProperty.call(row, 'patient_snapshot')) {
     delete row.patient_snapshot;
   }
-  return row;
+  return attachPatient(row);
 };
 
 const BOOKING_DETAIL_SELECT = `
@@ -189,7 +213,7 @@ const findAll = async (filters = {}) => {
   let query = `
     SELECT b.*,
       u.name as customer_name, u.phone as customer_phone,
-      COALESCE(fm.name, b.patient_snapshot->>'name') as family_member_name,
+      ${frozen('name', 'fm.name')} as family_member_name,
       h.name as hospital_name
     FROM bookings b
     JOIN users u ON b.user_id = u.id
@@ -266,7 +290,7 @@ const getActiveBookings = async () => {
   const result = await pool.query(`
     SELECT b.*,
       u.name as customer_name, u.phone as customer_phone,
-      COALESCE(fm.name, b.patient_snapshot->>'name') as family_member_name,
+      ${frozen('name', 'fm.name')} as family_member_name,
       h.name as hospital_name
     FROM bookings b
     JOIN users u ON b.user_id = u.id
@@ -284,7 +308,7 @@ const getTodayBookings = async () => {
   const result = await pool.query(`
     SELECT b.*,
       u.name as customer_name, u.phone as customer_phone,
-      COALESCE(fm.name, b.patient_snapshot->>'name') as family_member_name,
+      ${frozen('name', 'fm.name')} as family_member_name,
       h.name as hospital_name
     FROM bookings b
     JOIN users u ON b.user_id = u.id

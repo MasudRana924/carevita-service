@@ -44,7 +44,8 @@ const {
   BOOK_FOR_SELF,
   BOOK_FOR_FAMILY,
   assertBookingSubject,
-  buildSelfPatientSnapshot
+  buildSelfPatientSnapshot,
+  buildFamilyPatientSnapshot
 } = require('./selfBooking');
 const { invalidateCaregiverCatalog } = require('./catalogCache');
 
@@ -132,6 +133,7 @@ const createUserBooking = async (userId, body) => {
       error.code = 'NOT_FOUND';
       throw error;
     }
+    patientSnapshot = buildFamilyPatientSnapshot(familyMember);
   }
 
   const end_time = new Date(`${booking_date}T${start_time}`);
@@ -276,12 +278,8 @@ const createUserBooking = async (userId, body) => {
     }, 'Notify caregiver on booking create failed');
   }
 
-  if (bookFor === BOOK_FOR_SELF) {
-    const detailed = await findById(booking.id);
-    if (detailed) return detailed;
-  }
-
-  return booking;
+  const detailed = await findById(booking.id);
+  return detailed || booking;
 };
 
 const acceptBooking = async (bookingId, userId) => {

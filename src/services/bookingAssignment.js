@@ -7,6 +7,7 @@ const {
   setOfferExpiry
 } = require('../models/Booking');
 const Availability = require('../models/Availability');
+const { dayOfWeekFor } = Availability;
 const pool = require('../config/database');
 const { STATUSES } = require('./bookingJourney');
 const { ACCEPT_OFFER_TIMEOUT_MINUTES } = require('../config/platform');
@@ -119,6 +120,21 @@ const findNextCaregiver = async (booking, extraExclude = []) => {
           AND b.start_time < $9::time
           AND b.end_time > $8::time
       )
+      AND (
+        NOT EXISTS (
+          SELECT 1 FROM caregiver_availability a
+          WHERE a.caregiver_profile_id = cp.id
+            AND COALESCE(a.is_active, true) = true
+        )
+        OR EXISTS (
+          SELECT 1 FROM caregiver_availability a
+          WHERE a.caregiver_profile_id = cp.id
+            AND COALESCE(a.is_active, true) = true
+            AND a.day_of_week = $10
+            AND a.start_time <= $8::time
+            AND a.end_time >= $9::time
+        )
+      )
     ORDER BY
       cp.rating DESC NULLS LAST,
       cp.completed_bookings DESC NULLS LAST,
@@ -128,7 +144,7 @@ const findNextCaregiver = async (booking, extraExclude = []) => {
         WHEN $3::text IS NOT NULL AND lower(cp.thana) = lower($3) THEN 2
         ELSE 3
       END
-    LIMIT 20
+    LIMIT 1
     `,
     [
       exclude.length ? exclude : null,
@@ -141,17 +157,12 @@ const findNextCaregiver = async (booking, extraExclude = []) => {
       window.bookingDate,
       booking.id || null,
       window.startTime,
-      window.endTime
+      window.endTime,
+      dayOfWeekFor(window.bookingDate)
     ]
   );
 
-  const covering = await Availability.coveringProfileIds(
-    result.rows.map((row) => row.id),
-    window.bookingDate,
-    window.startTime,
-    window.endTime
-  );
-  return result.rows.find((row) => covering.has(row.id)) || null;
+  return result.rows[0] || null;
 };
 
 const reassignOrSearch = async (booking, actorId, note) => {

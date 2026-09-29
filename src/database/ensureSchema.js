@@ -1,6 +1,5 @@
-const fs = require('fs');
-const path = require('path');
 const pool = require('../config/database');
+const { applyMigrationFile } = require('./migrateRunner');
 
 const ensureFamilyMembersSchema = async () => {
   await pool.query('CREATE EXTENSION IF NOT EXISTS "pgcrypto"');
@@ -76,13 +75,12 @@ const ensureFamilyMembersSchema = async () => {
     WHERE is_active = true
   `);
 
-  const scaleSqlPath = path.join(
-    __dirname,
-    '../../migrations/add_self_booking_and_scale_indexes.sql'
-  );
-  if (fs.existsSync(scaleSqlPath)) {
-    await pool.query(fs.readFileSync(scaleSqlPath, 'utf8'));
-  }
+  // Columns are required by inserts. Index builds are recorded in
+  // schema_migrations and skipped after the first successful boot.
+  await pool.query(`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS book_for VARCHAR(20) NOT NULL DEFAULT 'FAMILY'`);
+  await pool.query('ALTER TABLE bookings ADD COLUMN IF NOT EXISTS patient_snapshot JSONB');
+  await applyMigrationFile('add_self_booking_and_scale_indexes.sql');
+  await applyMigrationFile('add_scale_indexes.concurrent.sql');
 };
 
 module.exports = { ensureFamilyMembersSchema };

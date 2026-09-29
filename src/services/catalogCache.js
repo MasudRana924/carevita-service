@@ -4,6 +4,12 @@
  */
 
 const { getOrSet, bumpNamespace } = require('./readCache');
+const {
+  stripCaregiverContacts,
+  stripCaregiverSearch,
+  hydrateCaregiverContacts,
+  hydrateCaregiverSearch
+} = require('./caregiverCache');
 
 const CAREGIVERS = 'caregivers';
 const HOSPITALS = 'hospitals';
@@ -21,10 +27,19 @@ const stableKey = (prefix, payload) => {
 };
 
 const cachedCaregiverSearch = (filters, loader) =>
-  getOrSet(stableKey('caregivers:search', filters), 45, loader, { namespace: CAREGIVERS });
+  getOrSet(stableKey('caregivers:search', filters), 45, loader, {
+    namespace: CAREGIVERS,
+    serialize: stripCaregiverSearch,
+    deserialize: hydrateCaregiverSearch
+  });
 
 const cachedCaregiverPublicProfile = (id, loader) =>
-  getOrSet(`caregivers:public:${id}`, 60, loader, { namespace: CAREGIVERS, cacheNull: false });
+  getOrSet(`caregivers:public:${id}`, 60, loader, {
+    namespace: CAREGIVERS,
+    cacheNull: false,
+    serialize: stripCaregiverContacts,
+    deserialize: hydrateCaregiverContacts
+  });
 
 const cachedPublicAvailability = (profileId, loader) =>
   getOrSet(`availability:${profileId}`, 45, loader, { namespace: CAREGIVERS });

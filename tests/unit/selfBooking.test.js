@@ -3,7 +3,8 @@ const {
   BOOK_FOR_FAMILY,
   resolveBookFor,
   assertBookingSubject,
-  buildSelfPatientSnapshot
+  buildSelfPatientSnapshot,
+  buildFamilyPatientSnapshot
 } = require('../../src/services/selfBooking');
 
 describe('self booking subject', () => {
@@ -59,5 +60,26 @@ describe('self patient snapshot', () => {
     expect(() => buildSelfPatientSnapshot({ name: '  ' }, {})).toThrow(
       'Add your name on your profile before booking for yourself'
     );
+  });
+});
+
+describe('family patient snapshot', () => {
+  test('copies the family member as they are at booking time', () => {
+    const snapshot = buildFamilyPatientSnapshot({
+      name: 'Nabila',
+      relationship: 'Mother',
+      district: 'Dhaka',
+      thana: 'Mirpur',
+      house: 'Road 2',
+      allergies: 'nuts'
+    });
+    expect(snapshot).toMatchObject({
+      name: 'Nabila',
+      relationship: 'Mother',
+      district: 'Dhaka',
+      thana: 'Mirpur',
+      house: 'Road 2',
+      allergies: 'nuts'
+    });
   });
 });

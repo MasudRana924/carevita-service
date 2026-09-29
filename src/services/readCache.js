@@ -6,12 +6,15 @@
 
 const { Redis } = require('@upstash/redis');
 
-const TIMEOUT_MS = 800;
+const TIMEOUT_MS = 200;
 const COOLDOWN_MS = 30000;
+const VERSION_MEMORY_MS = 1000;
 
 let sharedClient = null;
 let testClient = null;
 let disabledUntil = 0;
+/** @type {Map<string, { version: number|string, expiresAt: number }>} */
+const versionMemory = new Map();
 
 const withTimeout = (promise, ms) => {
   let timer;
@@ -46,11 +49,28 @@ const getRedis = () => {
   return sharedClient;
 };
 
+const rememberVersion = (namespace, version) => {
+  versionMemory.set(namespace, {
+    version,
+    expiresAt: Date.now() + VERSION_MEMORY_MS
+  });
+};
+
+const readVersion = async (redis, namespace) => {
+  const cached = versionMemory.get(namespace);
+  if (cached && cached.expiresAt > Date.now()) return cached.version;
+
+  const version = await withTimeout(redis.get(`ver:${namespace}`), TIMEOUT_MS);
+  const normalized = version == null ? 0 : version;
+  rememberVersion(namespace, normalized);
+  return normalized;
+};
+
 /**
  * @param {string} key
  * @param {number} ttlSeconds
  * @param {() => Promise<any>} loader
- * @param {{ namespace?: string, cacheNull?: boolean }} [options]
+ * @param {{ namespace?: string, cacheNull?: boolean, serialize?: (value: any) => any, deserialize?: (value: any) => Promise<any>|any }} [options]
  */
 const getOrSet = async (key, ttlSeconds, loader, options = {}) => {
   const cacheNull = options.cacheNull !== false;
@@ -60,8 +80,8 @@ const getOrSet = async (key, ttlSeconds, loader, options = {}) => {
   let fullKey = key;
   if (options.namespace) {
     try {
-      const version = await withTimeout(redis.get(`ver:${options.namespace}`), TIMEOUT_MS);
-      fullKey = `${key}:v${version == null ? 0 : version}`;
+      const version = await readVersion(redis, options.namespace);
+      fullKey = `${key}:v${version}`;
     } catch (error) {
       markFailed(error);
       return loader();
@@ -70,7 +90,15 @@ const getOrSet = async (key, ttlSeconds, loader, options = {}) => {
 
   try {
     const hit = await withTimeout(redis.get(fullKey), TIMEOUT_MS);
-    if (hit != null) return hit;
+    if (hit != null) {
+      if (!options.deserialize) return hit;
+      try {
+        return await options.deserialize(hit);
+      } catch (error) {
+        console.error('Cache hydrate failed, reading from database:', error.message);
+        return loader();
+      }
+    }
   } catch (error) {
     markFailed(error);
     return loader();
@@ -79,8 +107,9 @@ const getOrSet = async (key, ttlSeconds, loader, options = {}) => {
   const fresh = await loader();
   if (!cacheNull && (fresh == null)) return fresh;
 
+  const stored = options.serialize ? options.serialize(fresh) : fresh;
   try {
-    await withTimeout(redis.set(fullKey, fresh, { ex: ttlSeconds }), TIMEOUT_MS);
+    await withTimeout(redis.set(fullKey, stored, { ex: ttlSeconds }), TIMEOUT_MS);
   } catch (error) {
     markFailed(error);
   }
@@ -89,13 +118,16 @@ const getOrSet = async (key, ttlSeconds, loader, options = {}) => {
 
 /**
  * Bumps a namespace version so the next read misses.
+ * This process sees the new version immediately. Others see it within a second.
  * Failures are swallowed — TTL still expires stale entries.
  */
 const bumpNamespace = async (namespace) => {
+  versionMemory.delete(namespace);
   const redis = getRedis();
   if (!redis) return;
   try {
-    await withTimeout(redis.incr(`ver:${namespace}`), TIMEOUT_MS);
+    const next = await withTimeout(redis.incr(`ver:${namespace}`), TIMEOUT_MS);
+    rememberVersion(namespace, next);
   } catch (error) {
     markFailed(error);
   }
@@ -110,6 +142,7 @@ const resetCacheForTests = () => {
   testClient = null;
   sharedClient = null;
   disabledUntil = 0;
+  versionMemory.clear();
 };
 
 module.exports = {

@@ -43,18 +43,39 @@ const stripFields = (obj, fields) => {
  * - Provider before accept: service/time/area only — no PHI
  * - Provider after accept: allergies, conditions, medications (not full medical_history)
  */
+const attachPatient = (booking) => {
+  const source = String(booking.book_for || 'FAMILY').toUpperCase() === 'SELF' ? 'SELF' : 'FAMILY';
+  return {
+    ...booking,
+    patient: {
+      source,
+      family_member_id: booking.family_member_id || null,
+      name: booking.family_member_name || null,
+      relationship: booking.family_member_relationship || null,
+      photo: booking.family_member_photo || null,
+      blood_group: booking.family_member_blood_group || null,
+      date_of_birth: booking.family_member_dob || null,
+      district: booking.family_member_district || null,
+      thana: booking.family_member_thana || null,
+      house: booking.family_member_house || null
+    }
+  };
+};
+
 const presentBooking = (booking, { asProvider = false, isAdmin = false } = {}) => {
   if (!booking) return booking;
   const safe = { ...booking };
   delete safe.patient_snapshot;
-  if (!asProvider || isAdmin) return safe;
+  delete safe.patient;
+
+  if (!asProvider || isAdmin) return attachPatient(safe);
 
   const status = String(safe.status || '').toUpperCase();
   if (!POST_ACCEPT_STATUSES.has(status)) {
-    return stripFields(safe, PRE_ACCEPT_REDACT);
+    return attachPatient(stripFields(safe, PRE_ACCEPT_REDACT));
   }
 
-  return stripFields(safe, POST_ACCEPT_WITHHOLD);
+  return attachPatient(stripFields(safe, POST_ACCEPT_WITHHOLD));
 };
 
 module.exports = {

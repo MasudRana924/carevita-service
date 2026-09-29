@@ -22,6 +22,7 @@ describe('phiPolicy.presentBooking', () => {
     expect(view.patient_snapshot).toBeUndefined();
     expect(view.family_member_name).toBe('Rafi');
     expect(view.medical_history).toBe('long history');
+    expect(view.patient).toMatchObject({ source: 'FAMILY', name: 'Rafi' });
   });
 
   test('owner/admin sees full booking', () => {
@@ -35,6 +36,8 @@ describe('phiPolicy.presentBooking', () => {
     expect(view.medical_history).toBeUndefined();
     expect(view.patient_requirements).toBeUndefined();
     expect(view.service_type).toBe('HOME_CARE');
+    expect(view.patient.house).toBeNull();
+    expect(view.patient.blood_group).toBeNull();
   });
 
   test('provider after accept sees minimum PHI not full history', () => {
