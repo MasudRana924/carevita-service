@@ -17,18 +17,14 @@ You are updating the **existing CareMate USER mobile app**.
 `GET /bookings/:id` (and list items if present) now may include:
 
 - `offer_expires_at` (ISO timestamp or null)
-- `accept_timeout_minutes` (number, default 15)
+- `accept_timeout_minutes` (number, default 5)
 
 When `status === "PROVIDER_ASSIGNED"`:
 
 - Show copy like: **“Waiting for caregiver to accept”**
 - Optional countdown from `offer_expires_at` (informational for the user)
 
-When caregiver does not accept in time, backend reassigns or sets searching. Handle existing push + status refresh:
-
-- Push: `BOOKING_REASSIGNED` → refresh booking; show new caregiver
-- Push: `BOOKING_SEARCHING` or status `SEARCHING_PROVIDER` → show **“Finding another caregiver…”**
-- Push: `BOOKING_REJECTED` (already had) → same searching UI
+Caregiver reject / 5-minute timeout no longer auto-assigns the next caregiver. Follow `prompts/USER_APP_NEXT_CAREGIVER_AND_NOTIFICATIONS_PROMPT.md` for the suggestion modal. Do not show an automatic “reassigned” caregiver.
 
 Do not call accept/reject/start/complete from user app.
 
@@ -82,6 +78,6 @@ Existing ones should already work: `BOOKING_ACCEPTED`, `BOOKING_REASSIGNED`, `BO
 
 1. Direct book with selected caregiver still works.
 2. `PROVIDER_ASSIGNED` shows waiting (+ optional countdown).
-3. Reassign / searching UI works after reject or offer timeout.
+3. Reject / 5-minute timeout opens the next-caregiver suggestion flow from `USER_APP_NEXT_CAREGIVER_AND_NOTIFICATIONS_PROMPT.md` (no automatic reassign).
 4. No calls to removed `/bookings/:id/accept|reject|start|complete`.
 5. OTP no longer assumes `5852` in production.

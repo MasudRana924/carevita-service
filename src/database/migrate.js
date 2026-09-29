@@ -341,6 +341,13 @@ const migrate = async ({ closePool = true } = {}) => {
     await client.query('ALTER TABLE bookings ADD COLUMN IF NOT EXISTS payout_status VARCHAR(50) DEFAULT \'PENDING\'');
     await client.query('ALTER TABLE bookings ADD COLUMN IF NOT EXISTS start_reminder_sent_at TIMESTAMP');
     await client.query('ALTER TABLE bookings ADD COLUMN IF NOT EXISTS offer_expires_at TIMESTAMP');
+    await client.query('ALTER TABLE bookings ADD COLUMN IF NOT EXISTS suggested_provider_id UUID');
+    await client.query('ALTER TABLE bookings ADD COLUMN IF NOT EXISTS suggestion_expires_at TIMESTAMP');
+    await client.query('ALTER TABLE bookings ADD COLUMN IF NOT EXISTS no_start_notified_at TIMESTAMP');
+    await client.query('ALTER TABLE bookings ADD COLUMN IF NOT EXISTS no_start_reason TEXT');
+    await client.query('ALTER TABLE bookings ADD COLUMN IF NOT EXISTS no_start_is_emergency BOOLEAN');
+    await client.query('ALTER TABLE bookings ADD COLUMN IF NOT EXISTS no_start_reported_at TIMESTAMP');
+    await client.query('ALTER TABLE bookings ADD COLUMN IF NOT EXISTS end_reminder_sent_at TIMESTAMP');
     await client.query(`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS book_for VARCHAR(20) NOT NULL DEFAULT 'FAMILY'`);
     await client.query('ALTER TABLE bookings ADD COLUMN IF NOT EXISTS patient_snapshot JSONB');
     await client.query(`

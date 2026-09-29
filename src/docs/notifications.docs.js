@@ -21,6 +21,14 @@
  *       200:
  *         description: Notifications
  *
+ * /notifications/unread-count:
+ *   get:
+ *     tags: [Notifications]
+ *     summary: Unread notification count for the logged-in user
+ *     responses:
+ *       200:
+ *         description: "{ unread: number }"
+ *
  * /notifications/read-all:
  *   put:
  *     tags: [Notifications]

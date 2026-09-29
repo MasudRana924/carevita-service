@@ -18,6 +18,7 @@ const pool = require('./config/database');
 const { ensureFamilyMembersSchema } = require('./database/ensureSchema');
 const { startStartReminderJob } = require('./services/startReminderJob');
 const { startAcceptOfferTimeoutJob } = require('./services/acceptOfferTimeoutJob');
+const { startServiceWindowJob } = require('./services/serviceWindowJob');
 const { initSocket } = require('./realtime/socket');
 
 const app = express();
@@ -142,6 +143,7 @@ server.listen(PORT, '0.0.0.0', async () => {
     console.log('Database schema verified');
     startStartReminderJob();
     startAcceptOfferTimeoutJob();
+    startServiceWindowJob();
   } catch (error) {
     console.error('Database startup check failed:', error.message);
   }

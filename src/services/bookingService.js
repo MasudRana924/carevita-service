@@ -1,14 +1,20 @@
 const {
   createBooking,
   findById,
-  updateStatus,
-  clearOfferExpiry,
   addStatusHistory,
   addRejection,
   startService,
   complete,
   settleEarning,
-  cancel
+  cancel,
+  releaseProviderForSuggestion,
+  releaseExpiredOffer,
+  attachSuggestion,
+  clearSuggestion,
+  claimSuggestion,
+  cancelSearchingBooking,
+  cancelExpiredSuggestion,
+  saveNoStartReport
 } = require('../models/Booking');
 const pool = require('../config/database');
 const { findByUserIdAndId } = require('../models/FamilyMember');
@@ -31,15 +37,21 @@ const {
   journeyFlags,
   presentBooking,
   STATUSES,
-  assertTransition
+  assertTransition,
+  getScheduledStartAt,
+  getScheduledEndAt,
+  isInstantReached
 } = require('./bookingJourney');
 const { getCaregiverEarningForBooking } = require('./walletService');
 const { calculateBookingPrice } = require('./pricingService');
-const { assertCaregiverFree, reassignOrSearch, findNextCaregiver } = require('./bookingAssignment');
+const { assertCaregiverFree, findNextCaregiver } = require('./bookingAssignment');
 const { evaluateCancellation } = require('./cancellationPolicy');
 const { processBookingRefund } = require('./refundService');
 const { writeAudit } = require('../utils/audit');
-const { ACCEPT_OFFER_TIMEOUT_MINUTES } = require('../config/platform');
+const {
+  ACCEPT_OFFER_TIMEOUT_MINUTES,
+  SUGGESTION_RESPONSE_TIMEOUT_MINUTES
+} = require('../config/platform');
 const {
   BOOK_FOR_SELF,
   BOOK_FOR_FAMILY,
@@ -74,8 +86,133 @@ const withJourney = async (booking, userId) => {
     cancellation_policy: cancellation,
     offer_expires_at: booking.offer_expires_at || null,
     accept_timeout_minutes: ACCEPT_OFFER_TIMEOUT_MINUTES,
+    suggestion_response_timeout_minutes: SUGGESTION_RESPONSE_TIMEOUT_MINUTES,
+    suggested_caregiver: await loadSuggestedCaregiver(booking),
     bkash_script: bkashConfig.script
   };
+};
+
+const toSuggestionCard = (profile) => {
+  if (!profile) return null;
+  return {
+    id: profile.id,
+    name: profile.name || null,
+    profile_photo: profile.profile_photo || null,
+    rating: profile.rating != null ? Number(profile.rating) : null,
+    hourly_rate: profile.hourly_rate != null ? Number(profile.hourly_rate) : null,
+    experience_years: profile.experience_years != null ? Number(profile.experience_years) : null,
+    district: profile.district || null,
+    thana: profile.thana || null,
+    gender: profile.gender || null,
+    provider_type: profile.provider_type || 'CAREGIVER'
+  };
+};
+
+const loadSuggestedCaregiver = async (booking) => {
+  if (!booking?.suggested_provider_id) return null;
+  const profile = await getCaregiverProfileById(booking.suggested_provider_id);
+  return toSuggestionCard(profile);
+};
+
+const suggestionPushData = (booking, card) => ({
+  screen: 'suggest_next_caregiver',
+  action: 'CONFIRM_NEXT_CAREGIVER',
+  show_modal: 'true',
+  booking_number: booking.booking_number || '',
+  suggested_caregiver_id: card?.id || '',
+  suggested_caregiver_name: card?.name || '',
+  suggested_caregiver_photo: card?.profile_photo || '',
+  suggested_caregiver_rating: card?.rating != null ? String(card.rating) : '',
+  suggested_caregiver_hourly_rate: card?.hourly_rate != null ? String(card.hourly_rate) : '',
+  suggested_caregiver_district: card?.district || '',
+  suggested_caregiver_thana: card?.thana || '',
+  suggestion_expires_at: booking.suggestion_expires_at || ''
+});
+
+const notifySuggestion = async (booking, card, busyName) => {
+  const name = busyName || 'This caregiver';
+  await notifySafely({
+    userId: booking.user_id,
+    title: 'Caregiver is busy',
+    body: `${name} is busy. Do you want to select the next caregiver?`,
+    type: 'SUGGEST_NEXT_CAREGIVER',
+    bookingId: booking.id,
+    referenceId: booking.id,
+    referenceType: 'booking',
+    extraData: suggestionPushData(booking, card)
+  }, 'Suggest next caregiver failed');
+};
+
+const notifyBookingCancelledForRebook = async (booking, body) => {
+  await notifySafely({
+    userId: booking.user_id,
+    title: 'Booking cancelled',
+    body,
+    type: 'BOOKING_CANCELLED',
+    bookingId: booking.id,
+    referenceId: booking.id,
+    referenceType: 'booking',
+    extraData: {
+      screen: 'booking_details',
+      action: 'BOOK_AGAIN',
+      booking_number: booking.booking_number || ''
+    }
+  }, 'Cancel-for-rebook notify failed');
+};
+
+/**
+ * Provider is already cleared. Offer the next caregiver, or cancel so the user can book again.
+ */
+const suggestNextOrCancel = async (booking, actorId, note, excludedProviderId, busyName) => {
+  const next = await findNextCaregiver(booking, [excludedProviderId]);
+  if (!next) {
+    const reason = 'No other caregiver is available. Please create a new booking.';
+    const cancelled = await cancelSearchingBooking(booking.id, reason);
+    if (!cancelled) return { skipped: true };
+    await addStatusHistory(
+      booking.id,
+      booking.status,
+      STATUSES.CANCELLED_BY_USER,
+      actorId,
+      note || reason
+    );
+    await writeAudit({
+      actorId,
+      action: 'BOOKING_CANCELLED',
+      entityType: 'booking',
+      entityId: booking.id,
+      meta: { reason, status: STATUSES.CANCELLED_BY_USER }
+    });
+    await notifyBookingCancelledForRebook(
+      booking,
+      `No other caregiver is available for ${booking.booking_number}. This booking was cancelled. Please create a new booking.`
+    );
+    return { cancelled: true, booking: cancelled, next: null };
+  }
+
+  const attached = await attachSuggestion(
+    booking.id,
+    next.id,
+    SUGGESTION_RESPONSE_TIMEOUT_MINUTES
+  );
+  if (!attached) return { skipped: true };
+
+  await addStatusHistory(
+    booking.id,
+    booking.status,
+    STATUSES.SEARCHING_PROVIDER,
+    actorId,
+    note || `Suggested caregiver ${next.id}`
+  );
+
+  const card = toSuggestionCard(await getCaregiverProfileById(next.id)) || toSuggestionCard(next);
+  await notifySuggestion(
+    { ...booking, suggestion_expires_at: attached.suggestion_expires_at },
+    card,
+    busyName
+  );
+
+  return { cancelled: false, booking: attached, next: card };
 };
 
 const notifySafely = async (payload, label) => {
@@ -400,55 +537,273 @@ const rejectBooking = async (bookingId, userId, reason) => {
   const rejectReason = reason || 'No reason provided';
   await addRejection(booking.id, booking.provider_id, rejectReason);
 
-  const result = await reassignOrSearch(
-    booking,
-    userId,
-    `Provider rejected: ${rejectReason}`
+  const released = await releaseProviderForSuggestion(
+    booking.id,
+    booking.provider_id,
+    [STATUSES.SEARCHING_PROVIDER, STATUSES.PROVIDER_ASSIGNED, STATUSES.PROVIDER_ACCEPTED]
   );
-
-  if (result.next) {
-    await notifySafely({
-      userId: result.next.user_id,
-      title: 'New Booking Request',
-      body: `You have a new booking ${booking.booking_number}. Tap to view details.`,
-      type: 'BOOKING_CREATED',
-      bookingId: booking.id,
-      referenceId: booking.id,
-      referenceType: 'booking',
-      extraData: { booking_number: booking.booking_number, screen: 'inbox' }
-    }, 'Notify next caregiver failed');
-
-    await notifySafely({
-      userId: booking.user_id,
-      title: 'Caregiver changed',
-      body: `Your booking ${booking.booking_number} was reassigned to another caregiver.`,
-      type: 'BOOKING_REASSIGNED',
-      bookingId: booking.id,
-      referenceId: booking.id,
-      referenceType: 'booking',
-      extraData: { screen: 'inbox' }
-    }, 'Notify user on reassign failed');
-
+  if (!released) {
     return {
-      booking: { ...result.booking, reassigned: true, searching: false },
-      message: 'Booking reassigned to another caregiver'
+      booking,
+      message: 'Offer already closed'
     };
   }
 
+  const result = await suggestNextOrCancel(
+    booking,
+    userId,
+    `Provider rejected: ${rejectReason}`,
+    booking.provider_id,
+    booking.caregiver_name
+  );
+
+  if (result.skipped) {
+    return { booking, message: 'Offer already closed' };
+  }
+
+  if (result.cancelled) {
+    return {
+      booking: { ...result.booking, reassigned: false, searching: false, cancelled: true },
+      message: 'No other caregiver is available. Booking cancelled.'
+    };
+  }
+
+  return {
+    booking: {
+      ...result.booking,
+      reassigned: false,
+      searching: true,
+      awaiting_user: true,
+      suggested_caregiver: result.next
+    },
+    message: 'Caregiver declined. The user will be asked to choose the next caregiver.'
+  };
+};
+
+const handleOfferTimeout = async (bookingId) => {
+  const booking = await findById(bookingId);
+  if (!booking || booking.status !== STATUSES.PROVIDER_ASSIGNED || !booking.provider_id) {
+    return null;
+  }
+
+  const providerId = booking.provider_id;
+  const released = await releaseExpiredOffer(booking.id);
+  if (!released) return null;
+  await addRejection(booking.id, providerId, 'Offer timed out');
+
+  return suggestNextOrCancel(
+    booking,
+    null,
+    'Offer timed out — waiting for the user to choose the next caregiver',
+    booking.provider_id,
+    booking.caregiver_name
+  );
+};
+
+const expireUnansweredSuggestions = async () => {
+  const { rows } = await pool.query(
+    `
+    SELECT id
+    FROM bookings
+    WHERE status = 'SEARCHING_PROVIDER'
+      AND suggested_provider_id IS NOT NULL
+      AND suggestion_expires_at IS NOT NULL
+      AND suggestion_expires_at < NOW()
+    ORDER BY suggestion_expires_at ASC
+    LIMIT 25
+    `
+  );
+
+  let processed = 0;
+  for (const row of rows) {
+    const reason = 'You did not continue with the next caregiver. Please create a new booking.';
+    const cancelled = await cancelExpiredSuggestion(row.id, reason);
+    if (!cancelled) continue;
+
+    const booking = await findById(row.id);
+    await addStatusHistory(
+      row.id,
+      STATUSES.SEARCHING_PROVIDER,
+      STATUSES.CANCELLED_BY_USER,
+      null,
+      reason
+    );
+    await writeAudit({
+      actorId: null,
+      action: 'BOOKING_CANCELLED',
+      entityType: 'booking',
+      entityId: row.id,
+      meta: { reason, status: STATUSES.CANCELLED_BY_USER }
+    });
+    if (booking) {
+      await notifyBookingCancelledForRebook(
+        booking,
+        `Booking ${booking.booking_number} was cancelled because you did not continue. Please create a new booking.`
+      );
+    }
+    processed += 1;
+  }
+  return processed;
+};
+
+const acceptNextCaregiver = async (bookingId, userId) => {
+  const booking = await findById(bookingId);
+  if (!booking) {
+    const error = new Error('Booking not found');
+    error.statusCode = 404;
+    error.code = 'NOT_FOUND';
+    throw error;
+  }
+  if (booking.user_id !== userId) {
+    const error = new Error('Access denied');
+    error.statusCode = 403;
+    throw error;
+  }
+  if (booking.status !== STATUSES.SEARCHING_PROVIDER || !booking.suggested_provider_id) {
+    const error = new Error('There is no caregiver suggestion to continue');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (booking.suggestion_expires_at && new Date(booking.suggestion_expires_at).getTime() < Date.now()) {
+    const reason = 'You did not continue with the next caregiver. Please create a new booking.';
+    const cancelled = await cancelExpiredSuggestion(booking.id, reason);
+    if (cancelled) {
+      await addStatusHistory(booking.id, booking.status, STATUSES.CANCELLED_BY_USER, userId, reason);
+      await notifyBookingCancelledForRebook(
+        booking,
+        `Booking ${booking.booking_number} was cancelled because you did not continue. Please create a new booking.`
+      );
+    }
+    const error = new Error('This suggestion expired. The booking was cancelled. Please create a new booking.');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const caregiver = await getCaregiverProfileById(booking.suggested_provider_id);
+  if (!caregiver) {
+    const error = new Error('Suggested caregiver was not found');
+    error.statusCode = 404;
+    throw error;
+  }
+
+  try {
+    await assertCaregiverFree(caregiver, booking, { excludeBookingId: booking.id });
+  } catch (err) {
+    if (err.statusCode !== 409) throw err;
+    await addRejection(booking.id, caregiver.id, 'Unavailable when user confirmed');
+    const cleared = await clearSuggestion(booking.id, caregiver.id);
+    if (!cleared) {
+      const error = new Error('This suggestion is no longer available');
+      error.statusCode = 409;
+      error.code = 'CONFLICT';
+      throw error;
+    }
+    const refreshed = await findById(booking.id);
+    const rotated = await suggestNextOrCancel(
+      refreshed,
+      userId,
+      'Suggested caregiver became unavailable',
+      caregiver.id,
+      caregiver.name
+    );
+    const latest = await findById(booking.id);
+    return {
+      booking: await withJourney(latest, userId),
+      message: rotated.cancelled
+        ? 'No other caregiver is available. This booking was cancelled. Please create a new booking.'
+        : 'That caregiver is no longer available. Please confirm the next caregiver.'
+    };
+  }
+
+  const claimed = await claimSuggestion(
+    booking.id,
+    userId,
+    caregiver.id,
+    ACCEPT_OFFER_TIMEOUT_MINUTES
+  );
+  if (!claimed) {
+    const error = new Error('This suggestion is no longer available');
+    error.statusCode = 409;
+    error.code = 'CONFLICT';
+    throw error;
+  }
+
+  await addStatusHistory(
+    booking.id,
+    STATUSES.SEARCHING_PROVIDER,
+    STATUSES.PROVIDER_ASSIGNED,
+    userId,
+    `User continued with caregiver ${caregiver.id}`
+  );
+
   await notifySafely({
-    userId: booking.user_id,
-    title: 'Looking for another caregiver',
-    body: `The previous caregiver declined ${booking.booking_number}. We are searching for another caregiver.`,
-    type: 'BOOKING_REJECTED',
+    userId: caregiver.user_id,
+    title: 'New Booking Request',
+    body: `You have a new booking ${booking.booking_number}. Accept within ${ACCEPT_OFFER_TIMEOUT_MINUTES} minutes.`,
+    type: 'BOOKING_CREATED',
     bookingId: booking.id,
     referenceId: booking.id,
     referenceType: 'booking',
-    extraData: { reason: rejectReason, screen: 'inbox' }
-  }, 'Notify user on search failed');
+    extraData: {
+      booking_number: booking.booking_number,
+      screen: 'booking_details',
+      offer_expires_at: claimed.offer_expires_at || ''
+    }
+  }, 'Notify suggested caregiver failed');
 
+  const latest = await findById(booking.id);
   return {
-    booking: { ...result.booking, reassigned: false, searching: true },
-    message: 'Caregiver declined. Searching for another caregiver'
+    booking: await withJourney(latest, userId),
+    message: `Request sent to ${caregiver.name || 'the next caregiver'}. They have ${ACCEPT_OFFER_TIMEOUT_MINUTES} minutes to accept.`
+  };
+};
+
+const declineNextCaregiver = async (bookingId, userId) => {
+  const booking = await findById(bookingId);
+  if (!booking) {
+    const error = new Error('Booking not found');
+    error.statusCode = 404;
+    error.code = 'NOT_FOUND';
+    throw error;
+  }
+  if (booking.user_id !== userId) {
+    const error = new Error('Access denied');
+    error.statusCode = 403;
+    throw error;
+  }
+  if (booking.status !== STATUSES.SEARCHING_PROVIDER || !booking.suggested_provider_id) {
+    const error = new Error('There is no caregiver suggestion to decline');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const reason = 'User declined the next caregiver';
+  const cancelled = await cancelSearchingBooking(booking.id, reason, { requireSuggestion: true });
+  if (!cancelled) {
+    const error = new Error('This suggestion is no longer available');
+    error.statusCode = 409;
+    error.code = 'CONFLICT';
+    throw error;
+  }
+
+  await addStatusHistory(booking.id, booking.status, STATUSES.CANCELLED_BY_USER, userId, reason);
+  await writeAudit({
+    actorId: userId,
+    action: 'BOOKING_CANCELLED',
+    entityType: 'booking',
+    entityId: booking.id,
+    meta: { reason, status: STATUSES.CANCELLED_BY_USER }
+  });
+  await notifyBookingCancelledForRebook(
+    booking,
+    `Booking ${booking.booking_number} was cancelled. You can create a new booking whenever you are ready.`
+  );
+
+  const latest = await findById(booking.id);
+  return {
+    booking: await withJourney(latest, userId),
+    message: 'Booking cancelled. You can create a new booking.'
   };
 };
 
@@ -543,6 +898,19 @@ const startBooking = async (bookingId, userId, location = {}) => {
     throw error;
   }
 
+  const scheduledStart = getScheduledStartAt(booking);
+  const scheduledEnd = getScheduledEndAt(booking);
+  if (scheduledStart && !isInstantReached(scheduledStart)) {
+    const error = new Error('Service can only be started when the scheduled time arrives');
+    error.statusCode = 400;
+    throw error;
+  }
+  if (scheduledEnd && isInstantReached(scheduledEnd)) {
+    const error = new Error('The booked time has passed. Tell us why the service was not started.');
+    error.statusCode = 400;
+    throw error;
+  }
+
   const latitude = location.latitude ?? location.lat;
   const longitude = location.longitude ?? location.lng ?? location.long;
   if (latitude == null || longitude == null || latitude === '' || longitude === '') {
@@ -620,6 +988,13 @@ const completeBooking = async (bookingId, userId) => {
     throw error;
   }
 
+  const scheduledEnd = getScheduledEndAt(booking);
+  if (scheduledEnd && !isInstantReached(scheduledEnd)) {
+    const error = new Error('Service can only be ended after the booked time has passed');
+    error.statusCode = 400;
+    throw error;
+  }
+
   assertTransition(booking.status, STATUSES.SERVICE_COMPLETED);
   const oldStatus = booking.status;
   await complete(booking.id);
@@ -690,6 +1065,89 @@ const completeBooking = async (bookingId, userId) => {
     ...payload,
     earning_settled: !!settled?.earning_settled_at,
     caregiver_earning: caregiverEarning
+  };
+};
+
+const reportNoStart = async (bookingId, userId, { reason, is_emergency } = {}) => {
+  const booking = await findById(bookingId);
+  if (!booking) {
+    const error = new Error('Booking not found');
+    error.statusCode = 404;
+    error.code = 'NOT_FOUND';
+    throw error;
+  }
+  if (!(await isAssignedCaregiver(booking, userId))) {
+    const error = new Error('Access denied — this booking is not assigned to you');
+    error.statusCode = 403;
+    throw error;
+  }
+  if (booking.status !== STATUSES.PAYMENT_PAID) {
+    const error = new Error('A reason can only be sent when the service was not started');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const scheduledEnd = getScheduledEndAt(booking);
+  if (!scheduledEnd || !isInstantReached(scheduledEnd)) {
+    const error = new Error('The booked time has not ended yet');
+    error.statusCode = 400;
+    throw error;
+  }
+  if (booking.no_start_reported_at) {
+    const error = new Error('You already sent a reason');
+    error.statusCode = 409;
+    error.code = 'CONFLICT';
+    throw error;
+  }
+
+  const text = String(reason || '').trim();
+  if (!text) {
+    const error = new Error('reason is required');
+    error.statusCode = 400;
+    throw error;
+  }
+  if (text.length > 500) {
+    const error = new Error('reason must be 500 characters or less');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const isEmergency = is_emergency === true || is_emergency === 'true';
+  const caregiver = await getCaregiverProfileByUserId(userId);
+  const saved = await saveNoStartReport(booking.id, booking.provider_id, text, isEmergency);
+  if (!saved) {
+    const error = new Error('You already sent a reason');
+    error.statusCode = 409;
+    error.code = 'CONFLICT';
+    throw error;
+  }
+
+  const caregiverName = caregiver?.name || booking.caregiver_name || 'Your caregiver';
+  await notifySafely({
+    userId: booking.user_id,
+    title: isEmergency ? 'Caregiver emergency' : 'Service was not started',
+    body: isEmergency
+      ? `${caregiverName} could not start booking ${booking.booking_number}. Emergency: ${text}`
+      : `${caregiverName} did not start booking ${booking.booking_number}. Reason: ${text}`,
+    type: isEmergency ? 'SERVICE_NOT_STARTED_EMERGENCY' : 'SERVICE_NOT_STARTED_REASON',
+    bookingId: booking.id,
+    referenceId: booking.id,
+    referenceType: 'booking',
+    extraData: {
+      booking_number: booking.booking_number,
+      screen: 'booking_details',
+      is_emergency: String(isEmergency),
+      reason: text,
+      action: 'OPEN_BOOKING'
+    }
+  }, 'Notify user of missed start failed');
+
+  return {
+    id: booking.id,
+    booking_number: booking.booking_number,
+    no_start_reason: text,
+    no_start_is_emergency: isEmergency,
+    no_start_reported_at: saved.no_start_reported_at
   };
 };
 
@@ -859,9 +1317,14 @@ module.exports = {
   createUserBooking,
   acceptBooking,
   rejectBooking,
+  handleOfferTimeout,
+  expireUnansweredSuggestions,
+  acceptNextCaregiver,
+  declineNextCaregiver,
   cancelBooking,
   startBooking,
   completeBooking,
+  reportNoStart,
   submitReview,
   createDispute
 };

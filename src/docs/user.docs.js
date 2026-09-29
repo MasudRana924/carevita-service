@@ -114,6 +114,40 @@
  *       200:
  *         description: Notifications list
  *
+ * /user/notifications/unread-count:
+ *   get:
+ *     tags: [User]
+ *     summary: Unread notification count
+ *     responses:
+ *       200:
+ *         description: "{ unread: number }"
+ *
+ * /user/notifications/{id}:
+ *   get:
+ *     tags: [User]
+ *     summary: One notification
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       200:
+ *         description: Notification
+ *
+ * /user/notifications/{id}/read:
+ *   put:
+ *     tags: [User]
+ *     summary: Mark one notification as read
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       200:
+ *         description: Marked read
+ *
  * /user/notifications/read-all:
  *   post:
  *     tags: [User]

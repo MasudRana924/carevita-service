@@ -17,7 +17,7 @@ You are updating the **existing CareMate CAREGIVER mobile app**.
 Booking detail / job card now includes:
 
 - `offer_expires_at`
-- `accept_timeout_minutes` (default 15)
+- `accept_timeout_minutes` (default 5)
 
 When `status === "PROVIDER_ASSIGNED"`:
 
@@ -25,7 +25,7 @@ When `status === "PROVIDER_ASSIGNED"`:
 - Show a **countdown**: “Accept within Xm” using `offer_expires_at`
 - If timer hits 0 and user has not accepted:
   - Remove this booking from active list (or refresh list)
-  - Show toast: offer expired / reassigned
+  - Show toast: offer expired
   - Do not keep Accept enabled on an expired offer
 
 Push `BOOKING_CREATED` may include `extraData.offer_expires_at` — use it to start the timer when opening from notification.

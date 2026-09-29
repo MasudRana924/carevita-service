@@ -87,6 +87,33 @@ exports.rejectBooking = asyncHandler(async (req, res) => {
   }
 });
 
+exports.acceptNextCaregiver = asyncHandler(async (req, res) => {
+  try {
+    const result = await bookingService.acceptNextCaregiver(req.params.id, req.user.id);
+    return res.success(result.booking, result.message);
+  } catch (error) {
+    return mapServiceError(res, error, 'Failed to continue with the next caregiver');
+  }
+});
+
+exports.declineNextCaregiver = asyncHandler(async (req, res) => {
+  try {
+    const result = await bookingService.declineNextCaregiver(req.params.id, req.user.id);
+    return res.success(result.booking, result.message);
+  } catch (error) {
+    return mapServiceError(res, error, 'Failed to decline the next caregiver');
+  }
+});
+
+exports.reportNoStart = asyncHandler(async (req, res) => {
+  try {
+    const payload = await bookingService.reportNoStart(req.params.id, req.user.id, req.body || {});
+    return res.success(payload, 'Reason sent');
+  } catch (error) {
+    return mapServiceError(res, error, 'Failed to send the reason');
+  }
+});
+
 exports.cancelBooking = asyncHandler(async (req, res) => {
   try {
     const booking = await findById(req.params.id);

@@ -114,6 +114,14 @@ const countByUserId = async (user_id, filters = {}) => {
   return result.rows[0].count;
 };
 
+const deleteByIdForUser = async (id, user_id) => {
+  const result = await pool.query(
+    'DELETE FROM inbox WHERE id = $1 AND user_id = $2 RETURNING id',
+    [id, user_id]
+  );
+  return result.rows[0] || null;
+};
+
 const getUnreadCount = async (user_id) => {
   const result = await pool.query(
     'SELECT COUNT(*)::int AS count FROM inbox WHERE user_id = $1 AND is_read = false',
@@ -146,5 +154,6 @@ module.exports = {
   markAsRead,
   markAllAsRead,
   getUnreadCount,
+  deleteByIdForUser,
   findExisting
 };

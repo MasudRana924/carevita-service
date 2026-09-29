@@ -172,6 +172,34 @@
  *       201:
  *         description: Star review saved; caregiver average rating updated
  *
+ * /bookings/{id}/accept-next-caregiver:
+ *   post:
+ *     tags: [Bookings]
+ *     summary: User confirms the suggested next caregiver
+ *     description: Sends the same booking to that caregiver. They have ACCEPT_OFFER_TIMEOUT_MINUTES (default 5) to accept.
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       200:
+ *         description: Offer sent, or a replacement suggestion if that caregiver is no longer free
+ *
+ * /bookings/{id}/decline-next-caregiver:
+ *   post:
+ *     tags: [Bookings]
+ *     summary: User declines the suggested next caregiver
+ *     description: Cancels this booking. The user can create a new booking.
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       200:
+ *         description: Booking cancelled
+ *
  * /bookings/{id}/cancel:
  *   post:
  *     tags: [Bookings]

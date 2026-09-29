@@ -75,17 +75,53 @@ const assertTransition = (from, to) => {
   }
 };
 
+const DHAKA_OFFSET = '+06:00';
+
+const datePartOf = (bookingDate) => {
+  if (!bookingDate) return null;
+  if (typeof bookingDate === 'string') return bookingDate.slice(0, 10);
+  return bookingDate.toISOString().slice(0, 10);
+};
+
+const timePartOf = (timeValue, fallback = '00:00:00') => {
+  const timeRaw = timeValue ? String(timeValue).slice(0, 8) : fallback;
+  return timeRaw.length === 5 ? `${timeRaw}:00` : timeRaw;
+};
+
+/** Wall-clock booking times are Asia/Dhaka (UTC+6, no DST). */
+const dhakaInstant = (bookingDate, timeValue) => {
+  const datePart = datePartOf(bookingDate);
+  if (!datePart) return null;
+  const dt = new Date(`${datePart}T${timePartOf(timeValue)}${DHAKA_OFFSET}`);
+  return Number.isNaN(dt.getTime()) ? null : dt.toISOString();
+};
+
 const getScheduledStartAt = (booking) => {
   if (!booking?.booking_date) return null;
+  return dhakaInstant(booking.booking_date, booking.start_time || '00:00:00');
+};
 
-  const datePart = booking.booking_date instanceof Date
-    ? booking.booking_date.toISOString().slice(0, 10)
-    : String(booking.booking_date).slice(0, 10);
+const getScheduledEndAt = (booking) => {
+  const startIso = getScheduledStartAt(booking);
+  if (!startIso) return null;
 
-  const timeRaw = booking.start_time ? String(booking.start_time).slice(0, 8) : '00:00:00';
-  const timePart = timeRaw.length === 5 ? `${timeRaw}:00` : timeRaw;
-  const dt = new Date(`${datePart}T${timePart}`);
-  return Number.isNaN(dt.getTime()) ? null : dt.toISOString();
+  const hours = Number(booking.duration_hours);
+  if (Number.isFinite(hours) && hours > 0) {
+    return new Date(new Date(startIso).getTime() + hours * 60 * 60 * 1000).toISOString();
+  }
+
+  if (!booking.end_time) return startIso;
+  const endIso = dhakaInstant(booking.booking_date, booking.end_time);
+  if (!endIso) return startIso;
+  if (new Date(endIso).getTime() <= new Date(startIso).getTime()) {
+    return new Date(new Date(endIso).getTime() + 24 * 60 * 60 * 1000).toISOString();
+  }
+  return endIso;
+};
+
+const isInstantReached = (iso, now = Date.now()) => {
+  if (!iso) return true;
+  return now >= new Date(iso).getTime();
 };
 
 const publicReview = (review) => {
@@ -104,13 +140,28 @@ const journeyFlags = (booking, { userId, asProvider, review = null }) => {
   const status = String(booking.status || '').toUpperCase();
   const isOwner = booking.user_id === userId;
   const scheduled_start_at = getScheduledStartAt(booking);
-  const is_start_time_reached = scheduled_start_at
-    ? Date.now() >= new Date(scheduled_start_at).getTime()
-    : true;
+  const scheduled_end_at = getScheduledEndAt(booking);
+  const is_start_time_reached = isInstantReached(scheduled_start_at);
+  const is_end_time_reached = isInstantReached(scheduled_end_at);
+  const suggestionExpiresAt = booking.suggestion_expires_at
+    ? new Date(booking.suggestion_expires_at).getTime()
+    : null;
+  const awaiting_next_caregiver = status === STATUSES.SEARCHING_PROVIDER
+    && !!booking.suggested_provider_id
+    && (suggestionExpiresAt == null || suggestionExpiresAt >= Date.now());
+  const inBookedWindow = !scheduled_start_at
+    || (is_start_time_reached && !is_end_time_reached);
 
   return {
-    can_start: !!asProvider && status === STATUSES.PAYMENT_PAID,
-    can_complete: !!asProvider && status === STATUSES.SERVICE_IN_PROGRESS,
+    can_start: !!asProvider && status === STATUSES.PAYMENT_PAID && inBookedWindow,
+    can_complete: !!asProvider
+      && status === STATUSES.SERVICE_IN_PROGRESS
+      && (!scheduled_end_at || is_end_time_reached),
+    can_report_no_start: !!asProvider
+      && status === STATUSES.PAYMENT_PAID
+      && !!scheduled_end_at
+      && is_end_time_reached
+      && !booking.no_start_reported_at,
     can_live_track: isOwner && status === STATUSES.SERVICE_IN_PROGRESS,
     live_tracking_active: status === STATUSES.SERVICE_IN_PROGRESS,
     can_publish_location: !!asProvider && status === STATUSES.SERVICE_IN_PROGRESS,
@@ -124,7 +175,13 @@ const journeyFlags = (booking, { userId, asProvider, review = null }) => {
       STATUSES.SERVICE_COMPLETED
     ].includes(status),
     scheduled_start_at,
+    scheduled_end_at,
     is_start_time_reached,
+    is_end_time_reached,
+    awaiting_next_caregiver,
+    can_accept_next_caregiver: isOwner && awaiting_next_caregiver,
+    can_decline_next_caregiver: isOwner && awaiting_next_caregiver,
+    suggestion_expires_at: booking.suggestion_expires_at || null,
     payout_status: booking.payout_status || (booking.earning_settled_at ? 'SETTLED_TO_WALLET' : 'PENDING'),
     review: publicReview(review)
   };
@@ -138,6 +195,8 @@ module.exports = {
   canTransition,
   assertTransition,
   getScheduledStartAt,
+  getScheduledEndAt,
+  isInstantReached,
   publicReview,
   presentBooking,
   journeyFlags

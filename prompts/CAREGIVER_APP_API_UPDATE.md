@@ -101,7 +101,7 @@ Push types: `BOOKING_CREATED`, `PAYMENT_RECEIVED` (start now), `SERVICE_START_RE
 ## 3b. Offer timeout (NEW — update booking job UI)
 
 When status is `PROVIDER_ASSIGNED`:
-- Detail includes `offer_expires_at` and `accept_timeout_minutes`.
+- Detail includes `offer_expires_at` and `accept_timeout_minutes` (default 5).
 - Show a **countdown** (“Accept within Xm”). If the timer hits zero and you did not accept, the offer is auto-withdrawn and the booking leaves your list (reassigned or searching).
 - Push `BOOKING_CREATED` may include `offer_expires_at` in `extraData`.
 - Use only caregiver routes for actions:

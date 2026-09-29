@@ -58,7 +58,7 @@ Password login (`POST /auth/login`) is unchanged.
 ### 3. Product note (ops copy only — no new API)
 
 - Users **directly select** a caregiver when booking (`provider_id`).
-- If caregiver rejects or does not accept before `offer_expires_at`, backend reassigns or sets `SEARCHING_PROVIDER`.
+- If caregiver rejects or does not accept within 5 minutes (`offer_expires_at`), the booking stays `SEARCHING_PROVIDER` until the user confirms the next caregiver. If the user declines or does not continue, the booking is cancelled. Admin does not assign the next caregiver.
 - Admin does not need a new “match agent” screen.
 
 ## Do NOT do

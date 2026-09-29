@@ -54,6 +54,13 @@ const ensureFamilyMembersSchema = async () => {
   }
 
   await pool.query('ALTER TABLE bookings ADD COLUMN IF NOT EXISTS offer_expires_at TIMESTAMP');
+  await pool.query('ALTER TABLE bookings ADD COLUMN IF NOT EXISTS suggested_provider_id UUID');
+  await pool.query('ALTER TABLE bookings ADD COLUMN IF NOT EXISTS suggestion_expires_at TIMESTAMP');
+  await pool.query('ALTER TABLE bookings ADD COLUMN IF NOT EXISTS no_start_notified_at TIMESTAMP');
+  await pool.query('ALTER TABLE bookings ADD COLUMN IF NOT EXISTS no_start_reason TEXT');
+  await pool.query('ALTER TABLE bookings ADD COLUMN IF NOT EXISTS no_start_is_emergency BOOLEAN');
+  await pool.query('ALTER TABLE bookings ADD COLUMN IF NOT EXISTS no_start_reported_at TIMESTAMP');
+  await pool.query('ALTER TABLE bookings ADD COLUMN IF NOT EXISTS end_reminder_sent_at TIMESTAMP');
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS booking_live_locations (
@@ -80,6 +87,7 @@ const ensureFamilyMembersSchema = async () => {
   await pool.query(`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS book_for VARCHAR(20) NOT NULL DEFAULT 'FAMILY'`);
   await pool.query('ALTER TABLE bookings ADD COLUMN IF NOT EXISTS patient_snapshot JSONB');
   await applyMigrationFile('add_self_booking_and_scale_indexes.sql');
+  await applyMigrationFile('add_caregiver_suggestion_and_service_window.sql');
   await applyMigrationFile('add_scale_indexes.concurrent.sql');
 };
 

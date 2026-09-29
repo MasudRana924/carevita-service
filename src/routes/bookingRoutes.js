@@ -9,6 +9,8 @@ router.get('/', authenticate, bookingController.getBookings);
 router.get('/:id/live-location', authenticate, bookingController.getLiveLocation);
 router.get('/:id', authenticate, bookingController.getBooking);
 router.post('/:id/review', authenticate, reviewLimiter, bookingController.submitReview);
+router.post('/:id/accept-next-caregiver', authenticate, bookingWriteLimiter, bookingController.acceptNextCaregiver);
+router.post('/:id/decline-next-caregiver', authenticate, bookingWriteLimiter, bookingController.declineNextCaregiver);
 router.post('/:id/cancel', authenticate, bookingWriteLimiter, bookingController.cancelBooking);
 router.post('/:id/dispute', authenticate, bookingWriteLimiter, bookingController.createDispute);
 router.get('/:id/disputes', authenticate, bookingController.getBookingDisputes);

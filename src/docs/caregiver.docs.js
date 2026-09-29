@@ -268,6 +268,29 @@
  *       400:
  *         description: Missing consent or invalid coordinates
  *
+ * /caregiver/bookings/{id}/no-start-reason:
+ *   post:
+ *     tags: [Caregiver]
+ *     summary: Explain why a paid booking was not started before the booked time ended
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [reason]
+ *             properties:
+ *               reason: { type: string, maxLength: 500 }
+ *               is_emergency: { type: boolean, description: When true, the user is notified that this was an emergency }
+ *     responses:
+ *       200:
+ *         description: Reason saved and the user notified
+ *
  * /caregiver/bookings/{id}/complete:
  *   post:
  *     tags: [Caregiver]

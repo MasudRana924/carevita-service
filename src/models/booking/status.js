@@ -1,5 +1,8 @@
 const pool = require('../../config/database');
-const { ACCEPT_OFFER_TIMEOUT_MINUTES } = require('../../config/platform');
+const {
+  ACCEPT_OFFER_TIMEOUT_MINUTES,
+  SUGGESTION_RESPONSE_TIMEOUT_MINUTES
+} = require('../../config/platform');
 
 const updateBooking = async (id, bookingData) => {
   const {
@@ -76,6 +79,8 @@ const clearProvider = async (id, status = 'SEARCHING_PROVIDER') => {
     SET provider_id = NULL,
         status = $1,
         offer_expires_at = NULL,
+        suggested_provider_id = NULL,
+        suggestion_expires_at = NULL,
         updated_at = CURRENT_TIMESTAMP
     WHERE id = $2
     RETURNING *
@@ -93,6 +98,8 @@ const assignProvider = async (id, providerId, status = 'PROVIDER_ASSIGNED') => {
     SET provider_id = $1,
         status = $2,
         offer_expires_at = CURRENT_TIMESTAMP + ($3::text || ' minutes')::interval,
+        suggested_provider_id = NULL,
+        suggestion_expires_at = NULL,
         updated_at = CURRENT_TIMESTAMP
     WHERE id = $4
     RETURNING *
@@ -156,6 +163,8 @@ const cancel = async (id, cancellation_reason, cancelled_by) => {
     UPDATE bookings
     SET status = $1, cancellation_reason = $2, cancelled_by = $3,
         cancelled_at = CURRENT_TIMESTAMP, offer_expires_at = NULL,
+        suggested_provider_id = NULL,
+        suggestion_expires_at = NULL,
         updated_at = CURRENT_TIMESTAMP
     WHERE id = $4
     RETURNING *
@@ -232,6 +241,179 @@ const listRejectedIds = async (bookingId) => {
   return result.rows.map((row) => row.caregiver_profile_id);
 };
 
+/** Drop the assigned caregiver after reject. Only one caller wins the row. */
+const releaseProviderForSuggestion = async (id, providerId, fromStatuses) => {
+  const allowed = Array.isArray(fromStatuses) ? fromStatuses : [fromStatuses];
+  const result = await pool.query(
+    `
+    UPDATE bookings
+    SET status = 'SEARCHING_PROVIDER',
+        provider_id = NULL,
+        offer_expires_at = NULL,
+        updated_at = CURRENT_TIMESTAMP
+    WHERE id = $1
+      AND provider_id = $2
+      AND status = ANY($3::text[])
+    RETURNING *
+    `,
+    [id, providerId, allowed]
+  );
+  return result.rows[0] || null;
+};
+
+/** Drop a PROVIDER_ASSIGNED offer whose accept window has passed. */
+const releaseExpiredOffer = async (id) => {
+  const result = await pool.query(
+    `
+    UPDATE bookings
+    SET status = 'SEARCHING_PROVIDER',
+        provider_id = NULL,
+        offer_expires_at = NULL,
+        updated_at = CURRENT_TIMESTAMP
+    WHERE id = $1
+      AND status = 'PROVIDER_ASSIGNED'
+      AND offer_expires_at IS NOT NULL
+      AND offer_expires_at < NOW()
+    RETURNING *
+    `,
+    [id]
+  );
+  return result.rows[0] || null;
+};
+
+const attachSuggestion = async (
+  id,
+  caregiverProfileId,
+  minutes = SUGGESTION_RESPONSE_TIMEOUT_MINUTES
+) => {
+  const mins = Math.max(1, Number(minutes) || 30);
+  const result = await pool.query(
+    `
+    UPDATE bookings
+    SET suggested_provider_id = $2,
+        suggestion_expires_at = CURRENT_TIMESTAMP + ($3::text || ' minutes')::interval,
+        updated_at = CURRENT_TIMESTAMP
+    WHERE id = $1
+      AND status = 'SEARCHING_PROVIDER'
+      AND provider_id IS NULL
+      AND suggested_provider_id IS NULL
+    RETURNING *
+    `,
+    [id, caregiverProfileId, String(mins)]
+  );
+  return result.rows[0] || null;
+};
+
+const clearSuggestion = async (id, caregiverProfileId) => {
+  const result = await pool.query(
+    `
+    UPDATE bookings
+    SET suggested_provider_id = NULL,
+        suggestion_expires_at = NULL,
+        updated_at = CURRENT_TIMESTAMP
+    WHERE id = $1
+      AND status = 'SEARCHING_PROVIDER'
+      AND suggested_provider_id = $2
+    RETURNING *
+    `,
+    [id, caregiverProfileId]
+  );
+  return result.rows[0] || null;
+};
+
+const claimSuggestion = async (id, userId, caregiverProfileId, minutes = ACCEPT_OFFER_TIMEOUT_MINUTES) => {
+  const mins = Math.max(1, Number(minutes) || 5);
+  const result = await pool.query(
+    `
+    UPDATE bookings
+    SET provider_id = $3,
+        status = 'PROVIDER_ASSIGNED',
+        offer_expires_at = CURRENT_TIMESTAMP + ($4::text || ' minutes')::interval,
+        suggested_provider_id = NULL,
+        suggestion_expires_at = NULL,
+        updated_at = CURRENT_TIMESTAMP
+    WHERE id = $1
+      AND user_id = $2
+      AND status = 'SEARCHING_PROVIDER'
+      AND suggested_provider_id = $3
+      AND suggestion_expires_at IS NOT NULL
+      AND suggestion_expires_at >= NOW()
+    RETURNING *
+    `,
+    [id, userId, caregiverProfileId, String(mins)]
+  );
+  return result.rows[0] || null;
+};
+
+const cancelSearchingBooking = async (id, reason, { requireSuggestion = false } = {}) => {
+  const suggestionClause = requireSuggestion
+    ? 'AND suggested_provider_id IS NOT NULL'
+    : '';
+  const result = await pool.query(
+    `
+    UPDATE bookings
+    SET status = 'CANCELLED_BY_USER',
+        cancellation_reason = $2,
+        cancelled_by = 'CANCELLED_BY_USER',
+        cancelled_at = CURRENT_TIMESTAMP,
+        offer_expires_at = NULL,
+        suggested_provider_id = NULL,
+        suggestion_expires_at = NULL,
+        updated_at = CURRENT_TIMESTAMP
+    WHERE id = $1
+      AND status = 'SEARCHING_PROVIDER'
+      AND provider_id IS NULL
+      ${suggestionClause}
+    RETURNING *
+    `,
+    [id, reason]
+  );
+  return result.rows[0] || null;
+};
+
+const cancelExpiredSuggestion = async (id, reason) => {
+  const result = await pool.query(
+    `
+    UPDATE bookings
+    SET status = 'CANCELLED_BY_USER',
+        cancellation_reason = $2,
+        cancelled_by = 'CANCELLED_BY_USER',
+        cancelled_at = CURRENT_TIMESTAMP,
+        offer_expires_at = NULL,
+        suggested_provider_id = NULL,
+        suggestion_expires_at = NULL,
+        updated_at = CURRENT_TIMESTAMP
+    WHERE id = $1
+      AND status = 'SEARCHING_PROVIDER'
+      AND suggested_provider_id IS NOT NULL
+      AND suggestion_expires_at IS NOT NULL
+      AND suggestion_expires_at < NOW()
+    RETURNING *
+    `,
+    [id, reason]
+  );
+  return result.rows[0] || null;
+};
+
+const saveNoStartReport = async (id, providerId, reason, isEmergency) => {
+  const result = await pool.query(
+    `
+    UPDATE bookings
+    SET no_start_reason = $2,
+        no_start_is_emergency = $3,
+        no_start_reported_at = CURRENT_TIMESTAMP,
+        updated_at = CURRENT_TIMESTAMP
+    WHERE id = $1
+      AND provider_id = $4
+      AND status = 'PAYMENT_PAID'
+      AND no_start_reported_at IS NULL
+    RETURNING *
+    `,
+    [id, reason, isEmergency === true, providerId]
+  );
+  return result.rows[0] || null;
+};
+
 module.exports = {
   updateBooking,
   updateStatus,
@@ -248,5 +430,13 @@ module.exports = {
   addStatusHistory,
   getStatusHistory,
   addRejection,
-  listRejectedIds
+  listRejectedIds,
+  releaseProviderForSuggestion,
+  releaseExpiredOffer,
+  attachSuggestion,
+  clearSuggestion,
+  claimSuggestion,
+  cancelSearchingBooking,
+  cancelExpiredSuggestion,
+  saveNoStartReport
 };

@@ -4,7 +4,8 @@ const {
   findByIdForUser,
   markAsRead,
   markAllAsRead,
-  getUnreadCount
+  getUnreadCount,
+  deleteByIdForUser
 } = require('../models/Inbox');
 const { parsePagination } = require('../utils/pagination');
 
@@ -64,6 +65,19 @@ exports.markAllRead = async (req, res) => {
   } catch (error) {
     console.error('Mark all inbox read error:', error);
     return res.serverError('Failed to mark all as read');
+  }
+};
+
+exports.deleteInboxItem = async (req, res) => {
+  try {
+    const item = await deleteByIdForUser(req.params.id, req.user.id);
+    if (!item) {
+      return res.notFound('Notification not found');
+    }
+    return res.success({ id: item.id }, 'Notification deleted');
+  } catch (error) {
+    console.error('Delete notification error:', error);
+    return res.serverError('Failed to delete notification');
   }
 };
 
