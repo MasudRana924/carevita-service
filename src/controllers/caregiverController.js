@@ -12,6 +12,11 @@ const Review = require('../models/Review');
 const { journeyFlags, presentBooking } = require('../services/bookingJourney');
 const { parsePagination } = require('../utils/pagination');
 const { syncProfileFromUser } = require('../services/ekycService');
+const {
+  cachedCaregiverSearch,
+  cachedCaregiverPublicProfile,
+  invalidateCaregiverCatalog
+} = require('../services/catalogCache');
 
 const presentOrUndefined = (value) => {
   if (value === undefined || value === null) return undefined;
@@ -92,6 +97,7 @@ exports.createProfile = async (req, res) => {
     });
 
     const synced = await syncProfileFromUser(req.user.id);
+    await invalidateCaregiverCatalog();
 
     res.created(synced || profile, 'Caregiver profile created successfully');
   } catch (error) {
@@ -145,6 +151,7 @@ exports.updateMyProfile = async (req, res) => {
       thana: thanaValue !== undefined ? String(thanaValue).trim() : undefined
     });
 
+    await invalidateCaregiverCatalog();
     res.success(updatedProfile, 'Profile updated successfully');
   } catch (error) {
     console.error('Update caregiver profile error:', error);
@@ -159,7 +166,7 @@ exports.searchCaregivers = async (req, res) => {
       district, thana
     } = req.query;
     const { page, limit } = parsePagination(req.query);
-    const { items, total } = await searchCaregivers({
+    const filters = {
       service_area,
       name,
       gender,
@@ -169,7 +176,8 @@ exports.searchCaregivers = async (req, res) => {
       thana,
       page,
       limit
-    });
+    };
+    const { items, total } = await cachedCaregiverSearch(filters, () => searchCaregivers(filters));
 
     return res.paginated(items, { page, limit, total }, 'Caregivers fetched successfully');
   } catch (error) {
@@ -181,8 +189,11 @@ exports.searchCaregivers = async (req, res) => {
 exports.viewCaregiverProfile = async (req, res) => {
   try {
     const { id } = req.params;
-    let profile = await getCaregiverProfileById(id);
-    if (!profile) profile = await getCaregiverProfileByUserId(id);
+    const profile = await cachedCaregiverPublicProfile(id, async () => {
+      const byId = await getCaregiverProfileById(id);
+      if (byId) return byId;
+      return getCaregiverProfileByUserId(id);
+    });
     if (!profile) return res.notFound('Caregiver profile not found');
     res.success(profile);
   } catch (error) {

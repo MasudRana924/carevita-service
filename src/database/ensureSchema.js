@@ -1,3 +1,5 @@
+const fs = require('fs');
+const path = require('path');
 const pool = require('../config/database');
 
 const ensureFamilyMembersSchema = async () => {
@@ -73,6 +75,14 @@ const ensureFamilyMembersSchema = async () => {
     ON booking_live_locations (is_active)
     WHERE is_active = true
   `);
+
+  const scaleSqlPath = path.join(
+    __dirname,
+    '../../migrations/add_self_booking_and_scale_indexes.sql'
+  );
+  if (fs.existsSync(scaleSqlPath)) {
+    await pool.query(fs.readFileSync(scaleSqlPath, 'utf8'));
+  }
 };
 
 module.exports = { ensureFamilyMembersSchema };

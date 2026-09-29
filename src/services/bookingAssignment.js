@@ -101,19 +101,31 @@ const findNextCaregiver = async (booking, extraExclude = []) => {
       AND ($1::uuid[] IS NULL OR NOT (cp.id = ANY($1::uuid[])))
       AND (
         COALESCE(h.district, $2::text) IS NULL
-        OR cp.district ILIKE COALESCE(h.district, $2)
+        OR lower(cp.district) = lower(COALESCE(h.district, $2))
         OR (
           COALESCE($3::text, '') <> ''
-          AND cp.thana ILIKE $3
+          AND lower(cp.thana) = lower($3)
         )
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM bookings b
+        WHERE b.provider_id = cp.id
+          AND b.provider_type = 'CAREGIVER'
+          AND b.booking_date = $6::date
+          AND b.status IN (
+            'PROVIDER_ASSIGNED', 'PROVIDER_ACCEPTED', 'PAYMENT_PAID', 'SERVICE_IN_PROGRESS'
+          )
+          AND ($7::uuid IS NULL OR b.id <> $7)
+          AND b.start_time < $9::time
+          AND b.end_time > $8::time
       )
     ORDER BY
       cp.rating DESC NULLS LAST,
       cp.completed_bookings DESC NULLS LAST,
       CASE
-        WHEN h.district IS NOT NULL AND cp.district ILIKE h.district THEN 0
-        WHEN $2::text IS NOT NULL AND cp.district ILIKE $2 THEN 1
-        WHEN $3::text IS NOT NULL AND cp.thana ILIKE $3 THEN 2
+        WHEN h.district IS NOT NULL AND lower(cp.district) = lower(h.district) THEN 0
+        WHEN $2::text IS NOT NULL AND lower(cp.district) = lower($2) THEN 1
+        WHEN $3::text IS NOT NULL AND lower(cp.thana) = lower($3) THEN 2
         ELSE 3
       END
     LIMIT 20
@@ -125,30 +137,21 @@ const findNextCaregiver = async (booking, extraExclude = []) => {
       booking.hospital_id || null,
       booking.requested_provider_type
         || booking.money_rules_snapshot?.requested_provider_type
-        || 'CAREGIVER'
+        || 'CAREGIVER',
+      window.bookingDate,
+      booking.id || null,
+      window.startTime,
+      window.endTime
     ]
   );
 
-  for (const profile of result.rows) {
-    const overlap = await hasOverlap({
-      providerId: profile.id,
-      bookingDate: window.bookingDate,
-      startTime: window.startTime,
-      endTime: window.endTime,
-      excludeBookingId: booking.id
-    });
-    if (overlap) continue;
-    const covers = await Availability.coversSlot(
-      profile.id,
-      window.bookingDate,
-      window.startTime,
-      window.endTime
-    );
-    if (!covers) continue;
-    return profile;
-  }
-
-  return null;
+  const covering = await Availability.coveringProfileIds(
+    result.rows.map((row) => row.id),
+    window.bookingDate,
+    window.startTime,
+    window.endTime
+  );
+  return result.rows.find((row) => covering.has(row.id)) || null;
 };
 
 const reassignOrSearch = async (booking, actorId, note) => {

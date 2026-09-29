@@ -10,10 +10,14 @@
  *         application/json:
  *           schema:
  *             type: object
- *             required: [service_type, family_member_id, booking_date, start_time, duration_hours]
+ *             required: [service_type, booking_date, start_time, duration_hours]
  *             properties:
  *               service_type: { type: string, example: HOSPITAL_ASSISTANCE }
- *               family_member_id: { type: string, format: uuid }
+ *               book_for: { type: string, enum: [FAMILY, SELF], default: FAMILY, description: SELF books the logged-in user. FAMILY (default) requires family_member_id. }
+ *               family_member_id: { type: string, format: uuid, description: Required when book_for is FAMILY. Omit when book_for is SELF. }
+ *               district: { type: string, description: Optional. Used when book_for is SELF. }
+ *               thana: { type: string, description: Optional. Used when book_for is SELF. }
+ *               house: { type: string, description: Optional. Used when book_for is SELF. Falls back to the user address. }
  *               requested_provider_type: { type: string, enum: [CAREGIVER, NURSE], example: CAREGIVER, description: Provider subtype to auto-match (users.role stays CAREGIVER) }
  *               provider_id: { type: string, format: uuid, description: Optional preferred caregiver_profiles.id }
  *               hospital_id: { type: string, format: uuid }

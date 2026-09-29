@@ -1,6 +1,7 @@
 const pool = require('../config/database');
 const { findById: findUserById } = require('../models/User');
 const { publicUser } = require('../utils/serializers');
+const { cachedDashboard } = require('../services/catalogCache');
 
 exports.getAdminProfile = async (req, res) => {
   try {
@@ -15,6 +16,15 @@ exports.getAdminProfile = async (req, res) => {
 
 exports.getDashboardStats = async (req, res) => {
   try {
+    const payload = await cachedDashboard(() => loadDashboardStats());
+    res.success(payload);
+  } catch (error) {
+    console.error('Get dashboard stats error:', error);
+    res.serverError('Failed to fetch dashboard stats');
+  }
+};
+
+const loadDashboardStats = async () => {
     const [
       usersResult,
       caregiversResult,
@@ -42,7 +52,10 @@ exports.getDashboardStats = async (req, res) => {
       pool.query(`
         SELECT COUNT(*)::int AS count FROM bookings
         WHERE booking_date = CURRENT_DATE
-           OR created_at::date = CURRENT_DATE
+           OR (
+             created_at >= CURRENT_DATE
+             AND created_at < CURRENT_DATE + INTERVAL '1 day'
+           )
       `),
       pool.query(`
         SELECT COUNT(*)::int AS count FROM bookings
@@ -67,7 +80,9 @@ exports.getDashboardStats = async (req, res) => {
           CURRENT_DATE,
           '1 day'::interval
         ) AS d
-        LEFT JOIN bookings b ON b.created_at::date = d::date
+        LEFT JOIN bookings b
+          ON b.created_at >= d::timestamp
+         AND b.created_at < d::timestamp + INTERVAL '1 day'
         GROUP BY d
         ORDER BY d
       `),
@@ -84,7 +99,9 @@ exports.getDashboardStats = async (req, res) => {
           CURRENT_DATE,
           '1 day'::interval
         ) AS d
-        LEFT JOIN bookings b ON b.created_at::date = d::date
+        LEFT JOIN bookings b
+          ON b.created_at >= d::timestamp
+         AND b.created_at < d::timestamp + INTERVAL '1 day'
         GROUP BY d
         ORDER BY d
       `)
@@ -96,7 +113,7 @@ exports.getDashboardStats = async (req, res) => {
       WHERE status = 'COMPLETED'
     `);
 
-    res.success({
+    return {
       total_bookings: bookingsResult.rows[0].count,
       pending_payment: pendingPayResult.rows[0].count,
       paid: paidResult.rows[0].count,
@@ -122,9 +139,5 @@ exports.getDashboardStats = async (req, res) => {
           pending: r.pending
         }))
       }
-    });
-  } catch (error) {
-    console.error('Get dashboard stats error:', error);
-    res.serverError('Failed to fetch dashboard stats');
-  }
+    };
 };

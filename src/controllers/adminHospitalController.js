@@ -4,6 +4,7 @@ const {
   updateHospital
 } = require('../models/Hospital');
 const { parsePagination } = require('../utils/pagination');
+const { invalidateHospitals } = require('../services/catalogCache');
 
 exports.createHospital = async (req, res) => {
   try {
@@ -19,6 +20,7 @@ exports.createHospital = async (req, res) => {
     const result = await pool.query(query, [
       name, address, phone, email, location_lat, location_long, city, district, type, photoUrl, details
     ]);
+    await invalidateHospitals();
     res.created(result.rows[0], 'Hospital created successfully');
   } catch (error) {
     console.error('Create hospital error:', error);
@@ -84,6 +86,7 @@ exports.updateHospital = async (req, res) => {
       updated.photo = photo;
     }
 
+    await invalidateHospitals();
     res.success(updated, 'Hospital updated successfully');
   } catch (error) {
     console.error('Update hospital error:', error);
@@ -99,6 +102,7 @@ exports.updateHospitalStatus = async (req, res) => {
       [is_active, req.params.id]
     );
     if (!result.rows.length) return res.notFound('Hospital not found');
+    await invalidateHospitals();
     res.success(result.rows[0], 'Hospital status updated');
   } catch (error) {
     console.error('Update hospital status error:', error);

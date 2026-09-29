@@ -10,6 +10,7 @@ const diditConfig = require('../config/didit');
 const { writeAudit } = require('../utils/audit');
 const { notifyUser } = require('./pushNotificationService');
 const Inbox = require('../models/Inbox');
+const { invalidateCaregiverCatalog } = require('./catalogCache');
 
 const presentSession = (user, session) => ({
   ekyc_status: Boolean(user?.ekyc_status),
@@ -79,6 +80,7 @@ const applyDiditStatus = async ({
       ekyc_session_status: status,
       verification_status: verificationStatus
     });
+    await invalidateCaregiverCatalog();
   }
 
   await writeAudit({

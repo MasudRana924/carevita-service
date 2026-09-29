@@ -1,5 +1,10 @@
 const PrivacyPolicy = require('../models/PrivacyPolicy');
 const { writeAudit } = require('../utils/audit');
+const {
+  cachedPrivacyPolicy,
+  cachedPrivacyList,
+  invalidatePrivacyPolicies
+} = require('../services/catalogCache');
 
 const normalizeAudience = (raw) => String(raw || '').trim().toUpperCase();
 
@@ -11,7 +16,9 @@ exports.getPublicByAudience = async (req, res) => {
       return res.badRequest('audience must be USER or CAREGIVER');
     }
 
-    const policy = await PrivacyPolicy.findByAudience(audience, { publishedOnly: true });
+    const policy = await cachedPrivacyPolicy(audience, () =>
+      PrivacyPolicy.findByAudience(audience, { publishedOnly: true })
+    );
     if (!policy) {
       return res.notFound('Privacy policy not found for this audience');
     }
@@ -36,7 +43,7 @@ exports.getPublicByAudience = async (req, res) => {
 /** Public: optional list of published policies — GET /privacy-policies */
 exports.listPublic = async (req, res) => {
   try {
-    const rows = await PrivacyPolicy.listAll({ publishedOnly: true });
+    const rows = await cachedPrivacyList(() => PrivacyPolicy.listAll({ publishedOnly: true }));
     return res.success(
       rows.map((p) => ({
         id: p.id,
@@ -97,6 +104,8 @@ exports.adminUpsert = async (req, res) => {
       isPublished,
       actorId: req.user.id
     });
+
+    await invalidatePrivacyPolicies();
 
     await writeAudit({
       actorId: req.user.id,

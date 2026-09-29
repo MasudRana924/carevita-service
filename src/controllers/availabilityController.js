@@ -1,5 +1,9 @@
 const Availability = require('../models/Availability');
 const { getCaregiverProfileByUserId, getCaregiverProfileById } = require('../models/CaregiverProfile');
+const {
+  cachedPublicAvailability,
+  invalidateCaregiverCatalog
+} = require('../services/catalogCache');
 
 const validateSlots = (slots) => {
   if (!Array.isArray(slots) || !slots.length) {
@@ -39,6 +43,7 @@ exports.updateMyAvailability = async (req, res) => {
     if (invalid) return res.badRequest(invalid);
 
     const saved = await Availability.replaceWeeklySlots(profile.id, slots);
+    await invalidateCaregiverCatalog();
     return res.success(saved, 'Availability updated successfully');
   } catch (error) {
     console.error('Update availability error:', error);
@@ -51,7 +56,7 @@ exports.getPublicAvailability = async (req, res) => {
     let profile = await getCaregiverProfileById(req.params.id);
     if (!profile) profile = await getCaregiverProfileByUserId(req.params.id);
     if (!profile) return res.notFound('Caregiver profile not found');
-    const slots = await Availability.listByProfileId(profile.id);
+    const slots = await cachedPublicAvailability(profile.id, () => Availability.listByProfileId(profile.id));
     return res.success(slots, 'Availability fetched successfully');
   } catch (error) {
     console.error('Public availability error:', error);

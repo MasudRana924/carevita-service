@@ -8,17 +8,22 @@ const {
   adminReviewEkyc
 } = require('../services/ekycService');
 const diditService = require('../services/diditService');
+const {
+  cachedCaregiverSearch,
+  invalidateCaregiverCatalog
+} = require('../services/catalogCache');
 
 exports.getAllCaregivers = async (req, res) => {
   try {
     const { verification_status, ekyc_session_status } = req.query;
     const { page, limit } = parsePagination(req.query);
-    const { items, total } = await searchCaregivers({
+    const filters = {
       verification_status,
       ekyc_session_status,
       page,
       limit
-    });
+    };
+    const { items, total } = await cachedCaregiverSearch(filters, () => searchCaregivers(filters));
     return res.paginated(items, { page, limit, total }, 'Caregivers fetched successfully');
   } catch (error) {
     console.error('Get caregivers error:', error);
@@ -49,6 +54,7 @@ exports.blockCaregiver = async (req, res) => {
       entityId: row.id,
       meta: { user_id: row.user_id }
     });
+    await invalidateCaregiverCatalog();
     res.success({ caregiver_id: row.id, user_id: row.user_id }, 'Caregiver blocked');
   } catch (error) {
     console.error('Block caregiver error:', error);
@@ -79,6 +85,7 @@ exports.unblockCaregiver = async (req, res) => {
       entityId: row.id,
       meta: { user_id: row.user_id }
     });
+    await invalidateCaregiverCatalog();
     res.success({ caregiver_id: row.id, user_id: row.user_id }, 'Caregiver unblocked');
   } catch (error) {
     console.error('Unblock caregiver error:', error);
@@ -109,6 +116,7 @@ exports.approveCaregiverEkyc = async (req, res) => {
       comment,
       actorId: req.user.id
     });
+    await invalidateCaregiverCatalog();
     return res.success(data, 'Caregiver eKYC approved on Didit');
   } catch (error) {
     console.error('Approve caregiver eKYC error:', error);
@@ -132,6 +140,7 @@ exports.declineCaregiverEkyc = async (req, res) => {
       comment,
       actorId: req.user.id
     });
+    await invalidateCaregiverCatalog();
     return res.success(data, 'Caregiver eKYC declined on Didit');
   } catch (error) {
     console.error('Decline caregiver eKYC error:', error);
@@ -174,6 +183,7 @@ exports.reviewCredentials = async (req, res) => {
       meta: { provider_type: profile.provider_type, note: req.body?.note || null }
     });
 
+    await invalidateCaregiverCatalog();
     return res.success(updated, 'Credential status updated');
   } catch (error) {
     console.error('Review credentials error:', error);

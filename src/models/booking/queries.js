@@ -1,20 +1,40 @@
 const pool = require('../../config/database');
 
+const FAMILY_MEMBER_COLUMNS = `
+  COALESCE(fm.name, b.patient_snapshot->>'name') AS family_member_name,
+  COALESCE(fm.photo, b.patient_snapshot->>'photo') AS family_member_photo,
+  COALESCE(fm.relationship, b.patient_snapshot->>'relationship') AS family_member_relationship,
+  COALESCE(fm.blood_group, b.patient_snapshot->>'blood_group') AS family_member_blood_group,
+  COALESCE(fm.date_of_birth::text, b.patient_snapshot->>'date_of_birth') AS family_member_dob,
+  COALESCE(fm.district, b.patient_snapshot->>'district') AS family_member_district,
+  COALESCE(fm.thana, b.patient_snapshot->>'thana') AS family_member_thana,
+  COALESCE(fm.house, b.patient_snapshot->>'house') AS family_member_house
+`;
+
+const FAMILY_MEMBER_PHI = `
+  COALESCE(fm.medical_history, b.patient_snapshot->>'medical_history') AS family_member_medical_history,
+  COALESCE(fm.existing_conditions, b.patient_snapshot->>'existing_conditions') AS family_member_existing_conditions,
+  COALESCE(fm.allergies, b.patient_snapshot->>'allergies') AS family_member_allergies,
+  COALESCE(fm.current_medications, b.patient_snapshot->>'current_medications') AS family_member_current_medications,
+  COALESCE(fm.allergies, b.patient_snapshot->>'allergies') AS allergies,
+  COALESCE(fm.existing_conditions, b.patient_snapshot->>'existing_conditions') AS existing_conditions,
+  COALESCE(fm.current_medications, b.patient_snapshot->>'current_medications') AS current_medications,
+  COALESCE(fm.medical_history, b.patient_snapshot->>'medical_history') AS medical_history
+`;
+
+const publishBooking = (row) => {
+  if (!row) return row;
+  if (Object.prototype.hasOwnProperty.call(row, 'patient_snapshot')) {
+    delete row.patient_snapshot;
+  }
+  return row;
+};
+
 const BOOKING_DETAIL_SELECT = `
   SELECT b.*,
     u.name as customer_name, u.phone as customer_phone,
-    fm.name as family_member_name, fm.photo as family_member_photo,
-    fm.relationship as family_member_relationship,
-    fm.blood_group as family_member_blood_group, fm.date_of_birth as family_member_dob,
-    fm.district as family_member_district, fm.thana as family_member_thana, fm.house as family_member_house,
-    fm.medical_history as family_member_medical_history,
-    fm.existing_conditions as family_member_existing_conditions,
-    fm.allergies as family_member_allergies,
-    fm.current_medications as family_member_current_medications,
-    fm.allergies as allergies,
-    fm.existing_conditions as existing_conditions,
-    fm.current_medications as current_medications,
-    fm.medical_history as medical_history,
+    ${FAMILY_MEMBER_COLUMNS},
+    ${FAMILY_MEMBER_PHI},
     h.name as hospital_name, h.address as hospital_address, h.phone as hospital_phone,
     h.photo as hospital_photo, h.district as hospital_district, h.city as hospital_city,
     cp.bio as caregiver_bio, cp.education as caregiver_education,
@@ -36,7 +56,9 @@ const createBooking = async (bookingData) => {
     patient_requirements, notes, service_charge,
     platform_fee, discount, total_amount, advance_percentage,
     advance_amount, remaining_amount, status = 'PROVIDER_ASSIGNED',
-    offer_expires_at = null
+    offer_expires_at = null,
+    book_for = 'FAMILY',
+    patient_snapshot = null
   } = bookingData;
 
   const booking_number = `BK${Date.now()}${Math.floor(Math.random() * 1000)}`;
@@ -47,9 +69,10 @@ const createBooking = async (bookingData) => {
       hospital_id, booking_date, start_time, end_time, duration_hours,
       patient_requirements, notes, service_charge,
       platform_fee, discount, total_amount, advance_percentage,
-      advance_amount, remaining_amount, status, offer_expires_at
+      advance_amount, remaining_amount, status, offer_expires_at,
+      book_for, patient_snapshot
     )
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24::jsonb)
     RETURNING *
   `;
   const values = [
@@ -57,30 +80,29 @@ const createBooking = async (bookingData) => {
     hospital_id, booking_date, start_time, end_time, duration_hours,
     patient_requirements, notes, service_charge,
     platform_fee, discount, total_amount, advance_percentage,
-    advance_amount, remaining_amount, status, offer_expires_at
+    advance_amount, remaining_amount, status, offer_expires_at,
+    book_for,
+    patient_snapshot ? JSON.stringify(patient_snapshot) : null
   ];
 
   const result = await pool.query(query, values);
-  return result.rows[0];
+  return publishBooking(result.rows[0]);
 };
 
 const findById = async (id) => {
   const result = await pool.query(`${BOOKING_DETAIL_SELECT} WHERE b.id = $1`, [id]);
-  return result.rows[0];
+  return publishBooking(result.rows[0]);
 };
 
 const findByBookingNumber = async (booking_number) => {
   const result = await pool.query(`${BOOKING_DETAIL_SELECT} WHERE b.booking_number = $1`, [booking_number]);
-  return result.rows[0];
+  return publishBooking(result.rows[0]);
 };
 
 const findByUserId = async (user_id, filters = {}) => {
   let query = `
     SELECT b.*,
-      fm.name as family_member_name, fm.photo as family_member_photo,
-      fm.relationship as family_member_relationship,
-      fm.blood_group as family_member_blood_group, fm.date_of_birth as family_member_dob,
-      fm.district as family_member_district, fm.thana as family_member_thana, fm.house as family_member_house,
+      ${FAMILY_MEMBER_COLUMNS},
       h.name as hospital_name, h.address as hospital_address, h.phone as hospital_phone, h.photo as hospital_photo,
       cp.bio as caregiver_bio, cp.education as caregiver_education,
       cp.experience_years as caregiver_experience, cp.rating as caregiver_rating,
@@ -120,7 +142,7 @@ const findByUserId = async (user_id, filters = {}) => {
   }
 
   const result = await pool.query(query, values);
-  return result.rows;
+  return result.rows.map(publishBooking);
 };
 
 const countByUserId = async (user_id, filters = {}) => {
@@ -160,14 +182,14 @@ const findByProviderId = async (provider_id, provider_type, filters = {}) => {
     values.push(filters.limit);
   }
   const result = await pool.query(query, values);
-  return result.rows;
+  return result.rows.map(publishBooking);
 };
 
 const findAll = async (filters = {}) => {
   let query = `
     SELECT b.*,
       u.name as customer_name, u.phone as customer_phone,
-      fm.name as family_member_name,
+      COALESCE(fm.name, b.patient_snapshot->>'name') as family_member_name,
       h.name as hospital_name
     FROM bookings b
     JOIN users u ON b.user_id = u.id
@@ -209,7 +231,7 @@ const findAll = async (filters = {}) => {
     values.push(filters.offset);
   }
   const result = await pool.query(query, values);
-  return result.rows;
+  return result.rows.map(publishBooking);
 };
 
 const countAll = async (filters = {}) => {
@@ -244,7 +266,7 @@ const getActiveBookings = async () => {
   const result = await pool.query(`
     SELECT b.*,
       u.name as customer_name, u.phone as customer_phone,
-      fm.name as family_member_name,
+      COALESCE(fm.name, b.patient_snapshot->>'name') as family_member_name,
       h.name as hospital_name
     FROM bookings b
     JOIN users u ON b.user_id = u.id
@@ -255,14 +277,14 @@ const getActiveBookings = async () => {
     )
     ORDER BY b.booking_date ASC
   `);
-  return result.rows;
+  return result.rows.map(publishBooking);
 };
 
 const getTodayBookings = async () => {
   const result = await pool.query(`
     SELECT b.*,
       u.name as customer_name, u.phone as customer_phone,
-      fm.name as family_member_name,
+      COALESCE(fm.name, b.patient_snapshot->>'name') as family_member_name,
       h.name as hospital_name
     FROM bookings b
     JOIN users u ON b.user_id = u.id
@@ -271,7 +293,7 @@ const getTodayBookings = async () => {
     WHERE b.booking_date = CURRENT_DATE
     ORDER BY b.start_time ASC
   `);
-  return result.rows;
+  return result.rows.map(publishBooking);
 };
 
 module.exports = {

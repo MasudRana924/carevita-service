@@ -12,6 +12,7 @@ const {
 } = require('../models/Booking');
 const pool = require('../config/database');
 const { findByUserIdAndId } = require('../models/FamilyMember');
+const { findById: findUserById } = require('../models/User');
 const {
   getCaregiverProfileByUserId,
   getCaregiverProfileById,
@@ -39,6 +40,13 @@ const { evaluateCancellation } = require('./cancellationPolicy');
 const { processBookingRefund } = require('./refundService');
 const { writeAudit } = require('../utils/audit');
 const { ACCEPT_OFFER_TIMEOUT_MINUTES } = require('../config/platform');
+const {
+  BOOK_FOR_SELF,
+  BOOK_FOR_FAMILY,
+  assertBookingSubject,
+  buildSelfPatientSnapshot
+} = require('./selfBooking');
+const { invalidateCaregiverCatalog } = require('./catalogCache');
 
 const resolveCaregiverProfileId = async (userId) => {
   const profile = await getCaregiverProfileByUserId(userId);
@@ -78,6 +86,7 @@ const notifySafely = async (payload, label) => {
 };
 
 const createUserBooking = async (userId, body) => {
+  const bookFor = assertBookingSubject(body);
   const {
     family_member_id,
     provider_id,
@@ -92,18 +101,37 @@ const createUserBooking = async (userId, body) => {
     requested_provider_type = 'CAREGIVER'
   } = body;
 
-  if (!family_member_id || !booking_date || !start_time || !duration_hours) {
-    const error = new Error('family_member_id, booking_date, start_time, and duration_hours are required');
-    error.statusCode = 400;
-    throw error;
-  }
+  let familyMember = null;
+  let patientSnapshot = null;
 
-  const familyMember = await findByUserIdAndId(userId, family_member_id);
-  if (!familyMember) {
-    const error = new Error('Family member not found');
-    error.statusCode = 404;
-    error.code = 'NOT_FOUND';
-    throw error;
+  if (bookFor === BOOK_FOR_SELF) {
+    if (!booking_date || !start_time || !duration_hours) {
+      const error = new Error('booking_date, start_time, and duration_hours are required');
+      error.statusCode = 400;
+      throw error;
+    }
+    const user = await findUserById(userId);
+    if (!user) {
+      const error = new Error('User not found');
+      error.statusCode = 404;
+      error.code = 'NOT_FOUND';
+      throw error;
+    }
+    patientSnapshot = buildSelfPatientSnapshot(user, body);
+  } else {
+    if (!family_member_id || !booking_date || !start_time || !duration_hours) {
+      const error = new Error('family_member_id, booking_date, start_time, and duration_hours are required');
+      error.statusCode = 400;
+      throw error;
+    }
+
+    familyMember = await findByUserIdAndId(userId, family_member_id);
+    if (!familyMember) {
+      const error = new Error('Family member not found');
+      error.statusCode = 404;
+      error.code = 'NOT_FOUND';
+      throw error;
+    }
   }
 
   const end_time = new Date(`${booking_date}T${start_time}`);
@@ -159,7 +187,9 @@ const createUserBooking = async (userId, body) => {
 
   const draft = {
     user_id: userId,
-    family_member_id,
+    family_member_id: bookFor === BOOK_FOR_SELF ? null : family_member_id,
+    book_for: bookFor === BOOK_FOR_SELF ? BOOK_FOR_SELF : BOOK_FOR_FAMILY,
+    patient_snapshot: patientSnapshot,
     service_type,
     provider_type: 'CAREGIVER',
     provider_id: caregiver?.id || null,
@@ -204,8 +234,8 @@ const createUserBooking = async (userId, body) => {
   if (!caregiver && auto_assign !== false) {
     const matchContext = {
       ...booking,
-      family_member_district: familyMember.district,
-      family_member_thana: familyMember.thana,
+      family_member_district: familyMember?.district || patientSnapshot?.district || null,
+      family_member_thana: familyMember?.thana || patientSnapshot?.thana || null,
       hospital_id,
       requested_provider_type: providerSubtype
     };
@@ -244,6 +274,11 @@ const createUserBooking = async (userId, body) => {
         offer_expires_at: booking.offer_expires_at || null
       }
     }, 'Notify caregiver on booking create failed');
+  }
+
+  if (bookFor === BOOK_FOR_SELF) {
+    const detailed = await findById(booking.id);
+    if (detailed) return detailed;
   }
 
   return booking;
@@ -717,6 +752,7 @@ const submitReview = async (bookingId, userId, { rating, comment }) => {
 
   const stats = await Review.averageRatingForCaregiver(booking.provider_id);
   await updateRating(booking.provider_id, stats.avg_rating);
+  invalidateCaregiverCatalog();
 
   const caregiver = await getCaregiverProfileById(booking.provider_id);
   if (caregiver?.user_id) {

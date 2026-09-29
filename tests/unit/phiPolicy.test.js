@@ -13,6 +13,17 @@ describe('phiPolicy.presentBooking', () => {
     service_type: 'HOME_CARE'
   };
 
+  test('raw patient snapshot is not returned', () => {
+    const view = presentBooking({
+      ...base,
+      patient_snapshot: { medical_history: 'secret', name: 'Rafi' },
+      family_member_name: 'Rafi'
+    }, { asProvider: false });
+    expect(view.patient_snapshot).toBeUndefined();
+    expect(view.family_member_name).toBe('Rafi');
+    expect(view.medical_history).toBe('long history');
+  });
+
   test('owner/admin sees full booking', () => {
     expect(presentBooking(base, { asProvider: false }).medical_history).toBe('long history');
     expect(presentBooking(base, { asProvider: true, isAdmin: true }).medical_history).toBe('long history');

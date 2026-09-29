@@ -45,14 +45,16 @@ const stripFields = (obj, fields) => {
  */
 const presentBooking = (booking, { asProvider = false, isAdmin = false } = {}) => {
   if (!booking) return booking;
-  if (!asProvider || isAdmin) return booking;
+  const safe = { ...booking };
+  delete safe.patient_snapshot;
+  if (!asProvider || isAdmin) return safe;
 
-  const status = String(booking.status || '').toUpperCase();
+  const status = String(safe.status || '').toUpperCase();
   if (!POST_ACCEPT_STATUSES.has(status)) {
-    return stripFields(booking, PRE_ACCEPT_REDACT);
+    return stripFields(safe, PRE_ACCEPT_REDACT);
   }
 
-  return stripFields(booking, POST_ACCEPT_WITHHOLD);
+  return stripFields(safe, POST_ACCEPT_WITHHOLD);
 };
 
 module.exports = {

@@ -181,13 +181,13 @@ const buildCaregiverSearch = (filters = {}) => {
 
   if (district) {
     paramCount++;
-    whereSql += ` AND cp.district ILIKE $${paramCount}`;
+    whereSql += ` AND lower(cp.district) = lower($${paramCount})`;
     values.push(district);
   }
 
   if (thana) {
     paramCount++;
-    whereSql += ` AND cp.thana ILIKE $${paramCount}`;
+    whereSql += ` AND lower(cp.thana) = lower($${paramCount})`;
     values.push(thana);
   }
 

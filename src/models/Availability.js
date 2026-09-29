@@ -49,9 +49,8 @@ const replaceWeeklySlots = async (caregiverProfileId, slots = []) => {
   }
 };
 
-const coversSlot = async (caregiverProfileId, bookingDate, startTime, endTime) => {
-  const slots = await listByProfileId(caregiverProfileId);
-  const active = slots.filter((slot) => slot.is_active);
+const slotCovers = (slots, bookingDate, startTime, endTime) => {
+  const active = (slots || []).filter((slot) => slot.is_active);
   if (!active.length) return true;
 
   const date = bookingDate instanceof Date
@@ -69,8 +68,43 @@ const coversSlot = async (caregiverProfileId, bookingDate, startTime, endTime) =
   });
 };
 
+const coversSlot = async (caregiverProfileId, bookingDate, startTime, endTime) => {
+  const slots = await listByProfileId(caregiverProfileId);
+  return slotCovers(slots, bookingDate, startTime, endTime);
+};
+
+/**
+ * One query for a candidate set. Profiles with no weekly rows stay available,
+ * matching coversSlot.
+ * @returns {Promise<Set<string>>}
+ */
+const coveringProfileIds = async (profileIds, bookingDate, startTime, endTime) => {
+  const ids = [...new Set((profileIds || []).filter(Boolean))];
+  if (!ids.length) return new Set();
+
+  const result = await pool.query(
+    `
+    SELECT caregiver_profile_id, day_of_week, start_time, end_time, is_active
+    FROM caregiver_availability
+    WHERE caregiver_profile_id = ANY($1::uuid[])
+    `,
+    [ids]
+  );
+
+  const byId = new Map();
+  for (const row of result.rows) {
+    if (!byId.has(row.caregiver_profile_id)) byId.set(row.caregiver_profile_id, []);
+    byId.get(row.caregiver_profile_id).push(row);
+  }
+
+  return new Set(
+    ids.filter((id) => slotCovers(byId.get(id) || [], bookingDate, startTime, endTime))
+  );
+};
+
 module.exports = {
   listByProfileId,
   replaceWeeklySlots,
-  coversSlot
+  coversSlot,
+  coveringProfileIds
 };
