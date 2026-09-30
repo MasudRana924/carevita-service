@@ -52,14 +52,9 @@ const assertCaregiverFree = async (profile, booking, { excludeBookingId = null }
     throw error;
   }
 
-  const covers = await Availability.coversSlot(
-    profile.id,
-    window.bookingDate,
-    window.startTime,
-    window.endTime
-  );
+  const covers = await Availability.coversSlot(profile.id, window.bookingDate);
   if (!covers) {
-    const error = new Error('Requested time is outside caregiver weekly availability');
+    const error = new Error('Caregiver is not active on this day');
     error.statusCode = 409;
     error.code = 'CONFLICT';
     throw error;
@@ -124,15 +119,12 @@ const findNextCaregiver = async (booking, extraExclude = []) => {
         NOT EXISTS (
           SELECT 1 FROM caregiver_availability a
           WHERE a.caregiver_profile_id = cp.id
-            AND COALESCE(a.is_active, true) = true
         )
         OR EXISTS (
           SELECT 1 FROM caregiver_availability a
           WHERE a.caregiver_profile_id = cp.id
             AND COALESCE(a.is_active, true) = true
             AND a.day_of_week = $10
-            AND a.start_time <= $8::time
-            AND a.end_time >= $9::time
         )
       )
     ORDER BY

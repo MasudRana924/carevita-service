@@ -5,6 +5,7 @@ const {
   updateCaregiverProfile,
   searchCaregivers
 } = require('../models/CaregiverProfile');
+const { dayOfWeekFor } = require('../models/Availability');
 const { updateUser } = require('../models/User');
 const { findByProviderId: findBookingsByProviderId } = require('../models/Booking');
 const Wallet = require('../models/Wallet');
@@ -163,9 +164,26 @@ exports.searchCaregivers = async (req, res) => {
   try {
     const {
       service_area, name, gender, verification_status, min_rating,
-      district, thana
+      district, thana, booking_date
     } = req.query;
     const { page, limit } = parsePagination(req.query);
+
+    let booking_day;
+    if (booking_date) {
+      const raw = String(booking_date).slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+        return res.badRequest('booking_date must be YYYY-MM-DD');
+      }
+      const parsed = new Date(`${raw}T00:00:00`);
+      const y = parsed.getFullYear();
+      const m = String(parsed.getMonth() + 1).padStart(2, '0');
+      const d = String(parsed.getDate()).padStart(2, '0');
+      if (Number.isNaN(parsed.getTime()) || `${y}-${m}-${d}` !== raw) {
+        return res.badRequest('booking_date must be YYYY-MM-DD');
+      }
+      booking_day = dayOfWeekFor(raw);
+    }
+
     const filters = {
       service_area,
       name,
@@ -174,6 +192,8 @@ exports.searchCaregivers = async (req, res) => {
       min_rating,
       district,
       thana,
+      available_only: true,
+      booking_day,
       page,
       limit
     };

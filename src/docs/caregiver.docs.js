@@ -141,7 +141,7 @@
  * /caregiver/search:
  *   get:
  *     tags: [Caregiver]
- *     summary: Search caregivers (public) — filter by district, thana
+ *     summary: Search caregivers available for booking (is_available true). Optional booking_date keeps caregivers active that weekday.
  *     security: []
  *     parameters:
  *       - in: query
@@ -167,6 +167,10 @@
  *       - in: query
  *         name: min_rating
  *         schema: { type: number }
+ *       - in: query
+ *         name: booking_date
+ *         schema: { type: string, format: date }
+ *         description: YYYY-MM-DD. When set, only caregivers active on that weekday are returned.
  *       - in: query
  *         name: page
  *         schema: { type: integer, default: 1 }

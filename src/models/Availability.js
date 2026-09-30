@@ -32,8 +32,8 @@ const replaceWeeklySlots = async (caregiverProfileId, slots = []) => {
         [
           caregiverProfileId,
           slot.day_of_week,
-          slot.start_time,
-          slot.end_time,
+          slot.start_time || '00:00:00',
+          slot.end_time || '23:59:59',
           slot.is_active !== false
         ]
       );
@@ -56,30 +56,28 @@ const dayOfWeekFor = (bookingDate) => {
   return date.getDay();
 };
 
-const slotCovers = (slots, bookingDate, startTime, endTime) => {
-  const active = (slots || []).filter((slot) => slot.is_active);
-  if (!active.length) return true;
-
+/**
+ * Day-wise only. Clock times are not part of availability.
+ * No rows means the caregiver has not limited their days, so any date is allowed.
+ * Rows exist: the booking date's weekday must have is_active true.
+ */
+const isActiveOnDate = (slots, bookingDate) => {
+  if (!slots || !slots.length) return true;
   const dayOfWeek = dayOfWeekFor(bookingDate);
-  const start = String(startTime).slice(0, 8);
-  const end = String(endTime).slice(0, 8);
-
-  return active.some((slot) => {
-    if (Number(slot.day_of_week) !== dayOfWeek) return false;
-    const slotStart = String(slot.start_time).slice(0, 8);
-    const slotEnd = String(slot.end_time).slice(0, 8);
-    return slotStart <= start && slotEnd >= end;
-  });
+  return slots.some(
+    (slot) => slot.is_active !== false && Number(slot.day_of_week) === dayOfWeek
+  );
 };
 
-const coversSlot = async (caregiverProfileId, bookingDate, startTime, endTime) => {
+const coversSlot = async (caregiverProfileId, bookingDate) => {
   const slots = await listByProfileId(caregiverProfileId);
-  return slotCovers(slots, bookingDate, startTime, endTime);
+  return isActiveOnDate(slots, bookingDate);
 };
 
 module.exports = {
   listByProfileId,
   replaceWeeklySlots,
   coversSlot,
+  isActiveOnDate,
   dayOfWeekFor
 };

@@ -39,13 +39,13 @@
  * /caregiver/availability:
  *   get:
  *     tags: [Caregiver]
- *     summary: Get my weekly availability
+ *     summary: Get my day-wise availability (0=Sunday … 6=Saturday, is_active)
  *     responses:
  *       200:
  *         $ref: '#/components/responses/Success'
  *   put:
  *     tags: [Caregiver]
- *     summary: Replace weekly availability slots
+ *     summary: Replace day-wise availability (start_time and end_time are ignored)
  *     requestBody:
  *       content:
  *         application/json:

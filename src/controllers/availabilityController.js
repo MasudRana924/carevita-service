@@ -14,8 +14,8 @@ const validateSlots = (slots) => {
     if (!Number.isInteger(day) || day < 0 || day > 6) {
       return 'day_of_week must be 0-6 (Sunday-Saturday)';
     }
-    if (!slot.start_time || !slot.end_time) {
-      return 'start_time and end_time are required';
+    if (slot.is_active !== undefined && typeof slot.is_active !== 'boolean') {
+      return 'is_active must be true or false';
     }
   }
   return null;

@@ -162,7 +162,7 @@ const isEligibleForBooking = (profile) => {
 const buildCaregiverSearch = (filters = {}) => {
   const {
     service_area, name, gender, verification_status, min_rating,
-    district, thana, ekyc_session_status
+    district, thana, ekyc_session_status, available_only, booking_day
   } = filters;
 
   let whereSql = `
@@ -219,6 +219,29 @@ const buildCaregiverSearch = (filters = {}) => {
     paramCount++;
     whereSql += ` AND rating >= $${paramCount}`;
     values.push(min_rating);
+  }
+
+  if (available_only) {
+    whereSql += ' AND cp.is_available = true';
+  }
+
+  if (booking_day !== undefined && booking_day !== null && booking_day !== '') {
+    paramCount++;
+    whereSql += `
+      AND (
+        NOT EXISTS (
+          SELECT 1 FROM caregiver_availability a
+          WHERE a.caregiver_profile_id = cp.id
+        )
+        OR EXISTS (
+          SELECT 1 FROM caregiver_availability a
+          WHERE a.caregiver_profile_id = cp.id
+            AND COALESCE(a.is_active, true) = true
+            AND a.day_of_week = $${paramCount}
+        )
+      )
+    `;
+    values.push(Number(booking_day));
   }
 
   return { whereSql, values, paramCount };
