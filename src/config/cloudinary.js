@@ -7,4 +7,11 @@ cloudinary.v2.config({
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
+const looksUnset = (value) => !value || /^your_/i.test(String(value).trim());
+const unsetKeys = ['CLOUDINARY_CLOUD_NAME', 'CLOUDINARY_API_KEY', 'CLOUDINARY_API_SECRET']
+  .filter((key) => looksUnset(process.env[key]));
+if (unsetKeys.length) {
+  console.error(`Cloudinary is not configured (${unsetKeys.join(', ')} missing or placeholder) — file uploads will fail.`);
+}
+
 module.exports = cloudinary;
