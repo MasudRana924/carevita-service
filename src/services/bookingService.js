@@ -60,6 +60,7 @@ const {
   buildFamilyPatientSnapshot
 } = require('./selfBooking');
 const { invalidateCaregiverCatalog } = require('./catalogCache');
+const bookingChatService = require('./bookingChatService');
 
 const resolveCaregiverProfileId = async (userId) => {
   const profile = await getCaregiverProfileByUserId(userId);
@@ -88,6 +89,7 @@ const withJourney = async (booking, userId) => {
     accept_timeout_minutes: ACCEPT_OFFER_TIMEOUT_MINUTES,
     suggestion_response_timeout_minutes: SUGGESTION_RESPONSE_TIMEOUT_MINUTES,
     suggested_caregiver: await loadSuggestedCaregiver(booking),
+    chat: await bookingChatService.summaryForBooking(booking, userId),
     bkash_script: bkashConfig.script
   };
 };
@@ -837,6 +839,9 @@ const cancelBooking = async (booking, user, reason) => {
   const oldStatus = booking.status;
   const updated = await cancel(booking.id, reason, cancelStatus);
   await addStatusHistory(booking.id, oldStatus, cancelStatus, user.id, reason);
+  if (oldStatus === STATUSES.SERVICE_IN_PROGRESS) {
+    await bookingChatService.purgeForBooking(booking, cancelStatus);
+  }
 
   let refund = { skipped: true };
   if (policy.refundAmount > 0) {
@@ -951,7 +956,7 @@ const startBooking = async (bookingId, userId, location = {}) => {
   await notifySafely({
     userId: booking.user_id,
     title: 'Service Started',
-    body: `Caregiver started booking ${booking.booking_number}. Live tracking is available.`,
+    body: `Caregiver started booking ${booking.booking_number}. Live tracking and chat are available.`,
     type: 'SERVICE_STARTED',
     bookingId: booking.id,
     referenceId: booking.id,
@@ -961,7 +966,8 @@ const startBooking = async (bookingId, userId, location = {}) => {
       status: 'SERVICE_IN_PROGRESS',
       action: 'OPEN_LIVE_TRACKING',
       screen: 'live_tracking',
-      live_tracking: 'true'
+      live_tracking: 'true',
+      chat_available: 'true'
     }
   }, 'Notify user on start failed');
 
@@ -1009,6 +1015,7 @@ const completeBooking = async (bookingId, userId) => {
   } catch (trackErr) {
     console.error('Stop live tracking failed:', trackErr.message);
   }
+  await bookingChatService.purgeForBooking(booking, 'SERVICE_COMPLETED');
 
   if (booking.provider_type === 'CAREGIVER' && booking.provider_id) {
     try {

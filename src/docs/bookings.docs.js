@@ -246,4 +246,87 @@
  *         description: Incident recorded; payout frozen
  *       403:
  *         description: Not the booking owner
+ *
+ * /bookings/{id}/chat:
+ *   get:
+ *     tags: [Booking Chat]
+ *     summary: Chat summary for a booking (USER or assigned CAREGIVER)
+ *     description: >
+ *       Chat is open only while status is SERVICE_IN_PROGRESS. When the service ends
+ *       (completed or cancelled) every message is deleted and is_active becomes false.
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       200:
+ *         description: "{ booking_id, booking_number, is_active, my_role, unread_count, last_message, counterpart: { id, role, name, photo } }"
+ *       403:
+ *         description: Not a participant of this booking
+ *
+ * /bookings/{id}/chat/messages:
+ *   get:
+ *     tags: [Booking Chat]
+ *     summary: List chat messages (oldest to newest); opening the latest page marks incoming messages read
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *       - in: query
+ *         name: before
+ *         schema: { type: string, format: uuid }
+ *         description: Load older messages than this message id
+ *       - in: query
+ *         name: after
+ *         schema: { type: string, format: uuid }
+ *         description: Load newer messages than this message id (catch-up after reconnect)
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer, default: 30, maximum: 100 }
+ *     responses:
+ *       200:
+ *         description: data = messages[], meta.chat = summary, meta.has_more. Empty list when chat is closed.
+ *   post:
+ *     tags: [Booking Chat]
+ *     summary: Send a message (JSON text, or multipart with `file` image/PDF and optional `message` caption)
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               message: { type: string, maxLength: 4000 }
+ *               client_message_id: { type: string, description: Client-generated id; resending the same id returns the original message }
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               file: { type: string, format: binary }
+ *               message: { type: string }
+ *               client_message_id: { type: string }
+ *     responses:
+ *       201:
+ *         description: Message created; counterpart gets socket `chat:message` and FCM push type BOOKING_CHAT_MESSAGE
+ *       409:
+ *         description: CHAT_CLOSED — service is not in progress
+ *
+ * /bookings/{id}/chat/read:
+ *   put:
+ *     tags: [Booking Chat]
+ *     summary: Mark the other side's messages as read (emits socket `chat:read`)
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       200:
+ *         description: "{ marked }"
  */

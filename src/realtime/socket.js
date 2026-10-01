@@ -2,6 +2,7 @@ const { Server } = require('socket.io');
 const { verifyToken } = require('../config/jwt');
 const pool = require('../config/database');
 const liveTrackingService = require('../services/liveTrackingService');
+const bookingChatService = require('../services/bookingChatService');
 
 let io = null;
 
@@ -52,6 +53,53 @@ const initSocket = (httpServer) => {
 
   io.on('connection', (socket) => {
     console.log(`Socket connected: ${socket.id} user=${socket.user.id} role=${socket.user.role}`);
+
+    // Personal room: booking chat events are delivered here on every connected device.
+    socket.join(bookingChatService.userRoom(socket.user.id));
+
+    const failChat = (ack, error) => {
+      const message = error.message || 'Request failed';
+      const code = error.code || null;
+      socket.emit('chat:error', { message, code });
+      if (typeof ack === 'function') ack({ ok: false, message, code });
+    };
+
+    socket.on('chat:send', async (payload = {}, ack) => {
+      try {
+        const bookingId = payload.booking_id || payload.bookingId;
+        if (!bookingId) throw Object.assign(new Error('booking_id is required'), { statusCode: 400 });
+        const input = bookingChatService.parseMessageInput({ body: payload });
+        const result = await bookingChatService.sendMessage({ bookingId, sender: socket.user, input });
+        if (typeof ack === 'function') ack({ ok: true, data: result.message, duplicate: result.duplicate });
+      } catch (error) {
+        failChat(ack, error);
+      }
+    });
+
+    socket.on('chat:typing', async (payload = {}) => {
+      try {
+        const bookingId = payload.booking_id || payload.bookingId;
+        if (!bookingId) return;
+        await bookingChatService.sendTyping({
+          bookingId,
+          userId: socket.user.id,
+          isTyping: payload.is_typing === true
+        });
+      } catch (error) {
+        // Typing indicators are best-effort.
+      }
+    });
+
+    socket.on('chat:read', async (payload = {}, ack) => {
+      try {
+        const bookingId = payload.booking_id || payload.bookingId;
+        if (!bookingId) throw Object.assign(new Error('booking_id is required'), { statusCode: 400 });
+        const result = await bookingChatService.markRead({ bookingId, userId: socket.user.id });
+        if (typeof ack === 'function') ack({ ok: true, data: result });
+      } catch (error) {
+        failChat(ack, error);
+      }
+    });
 
     // USER (or caregiver) joins booking room to receive live updates
     socket.on('tracking:subscribe', async (payload = {}, ack) => {
@@ -107,7 +155,7 @@ const initSocket = (httpServer) => {
     });
   });
 
-  console.log('Socket.IO live tracking ready at /socket.io');
+  console.log('Socket.IO live tracking + booking chat ready at /socket.io');
   return io;
 };
 

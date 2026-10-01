@@ -1,5 +1,6 @@
 const pool = require('../config/database');
 const { notifyUser } = require('./pushNotificationService');
+const { purgeStaleChats } = require('./bookingChatService');
 
 const INTERVAL_MS = 60 * 1000;
 
@@ -172,9 +173,11 @@ const notifyEndDue = async () => {
 const processServiceWindows = async () => {
   const missed = await notifyMissedStarts();
   const endDue = await notifyEndDue();
+  const purgedChats = await purgeStaleChats();
   if (missed > 0) console.log(`Sent ${missed} missed-start notification(s)`);
   if (endDue > 0) console.log(`Sent ${endDue} service-end reminder(s)`);
-  return { missed, endDue };
+  if (purgedChats > 0) console.log(`Purged ${purgedChats} ended booking chat(s)`);
+  return { missed, endDue, purgedChats };
 };
 
 const startServiceWindowJob = () => {
