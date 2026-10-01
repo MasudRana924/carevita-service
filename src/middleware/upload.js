@@ -100,6 +100,46 @@ upload.chatAttachment = (fieldName = 'file') => (req, res, next) => {
   });
 };
 
+const PROFILE_PHOTO_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+
+const profilePhotoStorage = new CloudinaryStorage({
+  cloudinary: cloudinary.v2,
+  params: async () => ({
+    folder: 'caremate/avatars',
+    resource_type: 'image',
+    public_id: `avatar-${Date.now()}-${Math.round(Math.random() * 1E9)}`,
+    transformation: [{ width: 800, height: 800, crop: 'fill', gravity: 'face' }],
+  }),
+});
+
+const profilePhotoUpload = multer({
+  storage: profilePhotoStorage,
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (PROFILE_PHOTO_TYPES.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      const err = new Error('Invalid file type. Only JPEG, PNG and WEBP images are allowed.');
+      err.statusCode = 400;
+      cb(err, false);
+    }
+  },
+});
+
+upload.profilePhoto = (fieldName = 'photo') => (req, res, next) => {
+  profilePhotoUpload.single(fieldName)(req, res, (err) => {
+    if (!err) return next();
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      err.message = 'File too large. Maximum size is 5MB.';
+    } else if (err.code === 'LIMIT_UNEXPECTED_FILE') {
+      err.message = `Upload the image in the "${fieldName}" field`;
+    }
+    err.statusCode = err.statusCode || 400;
+    err.code = 'VALIDATION_ERROR';
+    return next(err);
+  });
+};
+
 upload.CHAT_IMAGE_TYPES = CHAT_IMAGE_TYPES;
 
 module.exports = upload;

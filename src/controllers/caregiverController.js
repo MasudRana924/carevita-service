@@ -97,6 +97,12 @@ exports.createProfile = async (req, res) => {
       specialization
     });
 
+    await updateUser(req.user.id, {
+      profile_photo: profilePhoto || undefined,
+      gender: presentOrUndefined(gender),
+      date_of_birth: presentOrUndefined(date_of_birth)
+    });
+
     const synced = await syncProfileFromUser(req.user.id);
     await invalidateCaregiverCatalog();
 
@@ -128,12 +134,17 @@ exports.updateMyProfile = async (req, res) => {
     const profile = await getCaregiverProfileByUserId(req.user.id);
     if (!profile) return res.notFound('Profile not found');
 
-    // name lives on users table (same as /user/profile) — not caregiver_profiles
-    if (presentOrUndefined(name) !== undefined) {
-      await updateUser(req.user.id, { name: String(name).trim() });
-    }
-
     const profilePhoto = req.file ? req.file.path : undefined;
+
+    // Account fields live on users (GET /user/me reads them); photo/gender/dob are mirrored on caregiver_profiles.
+    const nameValue = presentOrUndefined(name);
+    await updateUser(req.user.id, {
+      name: nameValue !== undefined ? String(nameValue).trim() : undefined,
+      profile_photo: profilePhoto,
+      gender: presentOrUndefined(gender),
+      date_of_birth: presentOrUndefined(date_of_birth)
+    });
+
     const districtValue = presentOrUndefined(district);
     const thanaValue = presentOrUndefined(thana);
 

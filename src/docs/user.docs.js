@@ -1,5 +1,54 @@
 /**
  * @swagger
+ * /user/me:
+ *   get:
+ *     tags: [User]
+ *     summary: My account details (USER and CAREGIVER)
+ *     responses:
+ *       200:
+ *         description: "{ id, role, name, email, phone, profile_photo, gender, date_of_birth, address, emergency_contact, language_preference, status, is_verified, ekyc_status, caregiver_profile_id, created_at, updated_at }"
+ *   put:
+ *     tags: [User]
+ *     summary: Update my profile fields (no photo, email or phone)
+ *     description: Send only the fields that changed. For caregivers, gender and date_of_birth are also copied to the caregiver profile.
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               name: { type: string, maxLength: 255 }
+ *               gender: { type: string, enum: [male, female, other] }
+ *               date_of_birth: { type: string, format: date, example: "1995-04-20" }
+ *               address: { type: string, maxLength: 500 }
+ *               emergency_contact: { type: string, maxLength: 20 }
+ *               language_preference: { type: string, enum: [bn, en] }
+ *     responses:
+ *       200:
+ *         description: Updated account (same shape as GET /user/me)
+ *       400:
+ *         description: VALIDATION_ERROR
+ *
+ * /user/me/photo:
+ *   put:
+ *     tags: [User]
+ *     summary: Update my profile photo only (USER and CAREGIVER)
+ *     description: Image is cropped to 800x800. For caregivers the photo is also shown on search and booking cards.
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required: [photo]
+ *             properties:
+ *               photo: { type: string, format: binary, description: "JPEG, PNG or WEBP, max 5MB" }
+ *     responses:
+ *       200:
+ *         description: Updated account (same shape as GET /user/me)
+ *       400:
+ *         description: Missing file, wrong type or larger than 5MB
+ *
  * /user/profile:
  *   get:
  *     tags: [User]

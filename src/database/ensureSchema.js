@@ -90,6 +90,7 @@ const ensureFamilyMembersSchema = async () => {
   await applyMigrationFile('add_caregiver_suggestion_and_service_window.sql');
   await applyMigrationFile('add_scale_indexes.concurrent.sql');
   await applyMigrationFile('add_booking_chat.sql');
+  await applyMigrationFile('add_user_gender.sql');
 };
 
 module.exports = { ensureFamilyMembersSchema };

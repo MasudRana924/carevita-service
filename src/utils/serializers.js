@@ -17,6 +17,7 @@ const publicUser = (user) => {
     emergency_contact: user.emergency_contact || null,
     address: user.address || null,
     date_of_birth: user.date_of_birth || null,
+    gender: user.gender || null,
     created_at: user.created_at || null,
     updated_at: user.updated_at || null
   };

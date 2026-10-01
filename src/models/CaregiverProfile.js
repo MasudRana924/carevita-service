@@ -199,7 +199,7 @@ const buildCaregiverSearch = (filters = {}) => {
 
   if (gender) {
     paramCount++;
-    whereSql += ` AND gender = $${paramCount}`;
+    whereSql += ` AND lower(cp.gender) = lower($${paramCount})`;
     values.push(gender);
   }
 

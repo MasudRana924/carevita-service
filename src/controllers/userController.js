@@ -2,6 +2,42 @@ const { findById: findUserById, updateUser } = require('../models/User');
 const { findByUserId: findBookingsByUserId, countByUserId: countBookingsByUserId } = require('../models/Booking');
 const { publicUser } = require('../utils/serializers');
 const { parsePagination } = require('../utils/pagination');
+const accountService = require('../services/accountService');
+
+const mapServiceError = (res, error, fallback) => {
+  if (error.statusCode) {
+    return res.error(error.message, [], error.statusCode, error.code);
+  }
+  console.error(fallback, error);
+  return res.serverError(fallback);
+};
+
+exports.getMe = async (req, res) => {
+  try {
+    const account = await accountService.getAccount(req.user.id);
+    return res.success(account, 'Account fetched successfully');
+  } catch (error) {
+    return mapServiceError(res, error, 'Failed to fetch account');
+  }
+};
+
+exports.updateMe = async (req, res) => {
+  try {
+    const account = await accountService.updateAccount(req.user.id, req.body || {});
+    return res.success(account, 'Profile updated successfully');
+  } catch (error) {
+    return mapServiceError(res, error, 'Failed to update profile');
+  }
+};
+
+exports.updateMyPhoto = async (req, res) => {
+  try {
+    const account = await accountService.updatePhoto(req.user.id, req.file);
+    return res.success(account, 'Profile photo updated successfully');
+  } catch (error) {
+    return mapServiceError(res, error, 'Failed to update profile photo');
+  }
+};
 
 exports.getMyProfile = async (req, res) => {
   try {

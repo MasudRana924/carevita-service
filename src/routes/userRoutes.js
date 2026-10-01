@@ -11,6 +11,11 @@ router.post('/notifications/read-all', authenticate, inboxController.markAllRead
 router.get('/notifications/:id', authenticate, inboxController.getInboxItem);
 router.put('/notifications/:id/read', authenticate, inboxController.markRead);
 
+// Account for USER and CAREGIVER: details, profile fields (no photo), photo only
+router.get('/me', authenticate, userController.getMe);
+router.put('/me', authenticate, userController.updateMe);
+router.put('/me/photo', authenticate, upload.profilePhoto('photo'), userController.updateMyPhoto);
+
 router.get('/profile', authenticate, userController.getMyProfile);
 router.put('/profile', authenticate, upload.single('profile_photo'), userController.updateMyProfile);
 router.post('/avatar', authenticate, upload.single('avatar'), userController.uploadAvatar);
