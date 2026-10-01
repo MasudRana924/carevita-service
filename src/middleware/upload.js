@@ -102,19 +102,11 @@ upload.chatAttachment = (fieldName = 'file') => (req, res, next) => {
 
 const PROFILE_PHOTO_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
 
-const profilePhotoStorage = new CloudinaryStorage({
-  cloudinary: cloudinary.v2,
-  params: async () => ({
-    folder: 'caremate/avatars',
-    resource_type: 'image',
-    public_id: `avatar-${Date.now()}-${Math.round(Math.random() * 1E9)}`,
-    transformation: [{ width: 800, height: 800, crop: 'fill', gravity: 'center' }],
-  }),
-});
-
+// Buffered in memory, then sent with the promise API: piping the client stream straight into
+// Cloudinary leaves stream errors unhandled on slow mobile networks, which crashes the process.
 const profilePhotoUpload = multer({
-  storage: profilePhotoStorage,
-  limits: { fileSize: 5 * 1024 * 1024 },
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024, files: 1 },
   fileFilter: (req, file, cb) => {
     if (PROFILE_PHOTO_TYPES.includes(file.mimetype)) {
       cb(null, true);
@@ -126,17 +118,47 @@ const profilePhotoUpload = multer({
   },
 });
 
+const uploadProfilePhotoBuffer = (file) => cloudinary.v2.uploader.upload(
+  `data:${file.mimetype};base64,${file.buffer.toString('base64')}`,
+  {
+    folder: 'caremate/avatars',
+    resource_type: 'image',
+    public_id: `avatar-${Date.now()}-${Math.round(Math.random() * 1E9)}`,
+    transformation: [{ width: 800, height: 800, crop: 'fill', gravity: 'center' }],
+    timeout: 60000,
+  }
+);
+
 upload.profilePhoto = (fieldName = 'photo') => (req, res, next) => {
-  profilePhotoUpload.single(fieldName)(req, res, (err) => {
-    if (!err) return next();
-    if (err.code === 'LIMIT_FILE_SIZE') {
-      err.message = 'File too large. Maximum size is 5MB.';
-    } else if (err.code === 'LIMIT_UNEXPECTED_FILE') {
-      err.message = `Upload the image in the "${fieldName}" field`;
+  profilePhotoUpload.single(fieldName)(req, res, async (err) => {
+    if (err) {
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        err.message = 'File too large. Maximum size is 5MB.';
+      } else if (err.code === 'LIMIT_UNEXPECTED_FILE') {
+        err.message = `Upload the image in the "${fieldName}" field`;
+      }
+      err.statusCode = err.statusCode || 400;
+      err.code = 'VALIDATION_ERROR';
+      return next(err);
     }
-    err.statusCode = err.statusCode || 400;
-    err.code = 'VALIDATION_ERROR';
-    return next(err);
+    if (!req.file?.buffer) return next();
+
+    try {
+      const result = await uploadProfilePhotoBuffer(req.file);
+      req.file.path = result.secure_url;
+      req.file.filename = result.public_id;
+      req.file.size = result.bytes;
+      delete req.file.buffer;
+      return next();
+    } catch (uploadError) {
+      const detail = uploadError?.message || uploadError?.error?.message || uploadError;
+      console.error('Profile photo Cloudinary upload failed:', detail);
+      const error = new Error('Could not upload the photo right now. Please try again.');
+      error.statusCode = 503;
+      error.code = 'UPLOAD_FAILED';
+      error.expose = true;
+      return next(error);
+    }
   });
 };
 

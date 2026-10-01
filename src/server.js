@@ -149,10 +149,9 @@ server.listen(PORT, '0.0.0.0', async () => {
   }
 });
 
-// Handle unhandled promise rejections
+// A stray rejected promise (cache, push, upload) must not take every user's request down with it.
 process.on('unhandledRejection', (err) => {
   console.error('Unhandled Promise Rejection:', err);
-  process.exit(1);
 });
 
 // Handle uncaught exceptions

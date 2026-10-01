@@ -67,7 +67,7 @@ const errorHandler = (err, req, res, next) => {
   const knownCodes = new Set(Object.values(ERROR_CODES));
   const statusCode = err.statusCode || err.status || 500;
   const isProduction = process.env.NODE_ENV === 'production';
-  const message = statusCode >= 500 && isProduction
+  const message = statusCode >= 500 && isProduction && !err.expose
     ? 'Internal server error'
     : (err.message || 'Internal server error');
 
