@@ -14,6 +14,8 @@ router.put('/notifications/:id/read', authenticate, inboxController.markRead);
 // Account for USER and CAREGIVER: details, profile fields (no photo), photo only
 router.get('/me', authenticate, userController.getMe);
 router.put('/me', authenticate, userController.updateMe);
+// POST is the primary method: Android PUT + FormData hangs behind the production proxy (gateway 502).
+router.post('/me/photo', authenticate, upload.profilePhoto('photo'), userController.updateMyPhoto);
 router.put('/me/photo', authenticate, upload.profilePhoto('photo'), userController.updateMyPhoto);
 
 router.get('/profile', authenticate, userController.getMyProfile);

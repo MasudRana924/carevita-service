@@ -42,7 +42,7 @@ You are updating the **existing CareMate CAREGIVER mobile app** (React Native). 
 - `gender` is `"male" | "female" | "other" | null`. `date_of_birth` is `"YYYY-MM-DD"` or `null`.
 - `caregiver_profile_id` is `null` if the caregiver has not created a caregiver profile yet (keep the existing onboarding flow for that case).
 
-### 2. Update photo only — `PUT /user/me/photo`
+### 2. Update photo only — `POST /user/me/photo`
 
 - `multipart/form-data` with one field: **`photo`** (JPEG, PNG or WEBP, **max 5MB**).
 - The server crops the image to a square (800×800).
@@ -52,8 +52,12 @@ You are updating the **existing CareMate CAREGIVER mobile app** (React Native). 
 ```ts
 const form = new FormData();
 form.append('photo', { uri: asset.uri, name: asset.fileName ?? 'avatar.jpg', type: asset.type ?? 'image/jpeg' } as any);
-await api.put('/user/me/photo', form, { headers: { 'Content-Type': 'multipart/form-data' } });
+await api.post('/user/me/photo', form, { headers: { 'Content-Type': 'multipart/form-data' } });
 ```
+
+- **Use `POST`, not `PUT`, for this upload.** On Android, `PUT` with FormData hangs behind the production proxy and returns a gateway 502.
+- Let the HTTP client set the multipart boundary. If you set `Content-Type` yourself, it must be exactly `multipart/form-data` (axios then adds the boundary). Never send `application/json` with FormData.
+- Use a 60 s timeout for this request (uploads on mobile data can be slow).
 
 ### 3. Update account fields — `PUT /user/me` (JSON)
 
@@ -80,7 +84,7 @@ Send **only the fields that changed**:
 2. **Avatar with an edit icon**: show a small round camera/pencil icon badge at the bottom-right of the avatar.
 3. Tap the edit icon → action sheet: **Take photo** / **Choose from gallery** / Cancel. Ask for camera or gallery permission when needed.
 4. After the user picks an image (allow square crop in the picker if available), check the type (jpg/png/webp) and size (≤ 5MB) on the device. If it is too large, compress or resize it before uploading.
-5. **Upload automatically**. No extra Save button. Call `PUT /user/me/photo`. While uploading, show a spinner over the avatar and disable the edit icon.
+5. **Upload automatically**. No extra Save button. Call `POST /user/me/photo`. While uploading, show a spinner over the avatar and disable the edit icon.
 6. **On success → call `GET /user/me` again** and render the latest data (new photo URL). Show a toast "Profile photo updated". Update the cached user in the global store or context too, so the header or drawer avatar changes everywhere.
 7. On failure → keep the old photo, show the API `message` in a toast, and hide the spinner.
 8. Add an **Edit Profile** button that opens the Edit Profile screen.

@@ -30,9 +30,9 @@
  *         description: VALIDATION_ERROR
  *
  * /user/me/photo:
- *   put:
+ *   post:
  *     tags: [User]
- *     summary: Update my profile photo only (USER and CAREGIVER)
+ *     summary: Update my profile photo only (USER and CAREGIVER). PUT is also accepted, but mobile apps should use POST.
  *     description: Image is cropped to 800x800. For caregivers the photo is also shown on search and booking cards.
  *     requestBody:
  *       required: true

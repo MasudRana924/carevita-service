@@ -108,7 +108,7 @@ const profilePhotoStorage = new CloudinaryStorage({
     folder: 'caremate/avatars',
     resource_type: 'image',
     public_id: `avatar-${Date.now()}-${Math.round(Math.random() * 1E9)}`,
-    transformation: [{ width: 800, height: 800, crop: 'fill', gravity: 'face' }],
+    transformation: [{ width: 800, height: 800, crop: 'fill', gravity: 'center' }],
   }),
 });
 
