@@ -8,7 +8,7 @@ Backend for **CareMate** — a Bangladesh family care marketplace where families
 
 - Node.js + Express
 - PostgreSQL (`pg`)
-- JWT auth (email OTP)
+- JWT auth (email or phone + static OTP)
 - Cloudinary (uploads)
 - bKash payments
 - Didit eKYC
@@ -25,12 +25,12 @@ Backend for **CareMate** — a Bangladesh family care marketplace where families
 ## Features
 
 ### Auth & users
-- Email + password registration / login with email OTP verification
+- Email **or phone** + password registration / login, verified with a static OTP (`STATIC_OTP`, default `1234`; no email/SMS is sent)
 - JWT access (~15m) + refresh (~30d) with **rotation** and reuse detection
 - `POST /auth/logout` revokes the refresh-token session family
 - Roles: `USER` | `CAREGIVER` | `ADMIN` (public register: USER or CAREGIVER only)
 - Profile + avatar upload
-- Dev static OTP only when `ALLOW_STATIC_OTP=true` and **never** in production
+- `verify-otp` only verifies accounts that are not verified yet, so the static OTP never works as a login
 
 ### Family members
 - CRUD profiles (district / thana / house for matching)
@@ -101,9 +101,7 @@ DIDIT_API_KEY=...
 PLATFORM_FEE_RATE=0.05
 ACCEPT_OFFER_TIMEOUT_MINUTES=5
 SUGGESTION_RESPONSE_TIMEOUT_MINUTES=30
-# Dev only — never in production:
-# ALLOW_STATIC_OTP=true
-# DEV_OTP=5852
+# STATIC_OTP=1234
 ```
 
 ## Project structure

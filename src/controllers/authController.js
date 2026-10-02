@@ -1,11 +1,14 @@
-const crypto = require('crypto');
-const { createUser, findByEmail, findById, updateUser, updatePassword, verifyPassword, setVerified } = require('../models/User');
+const { createUser, findByEmail, findByPhone, findById, updateUser, updatePassword, verifyPassword, setVerified } = require('../models/User');
 const { generateToken } = require('../config/jwt');
 const pool = require('../config/database');
-const transporter = require('../config/nodemailer');
 const { authUser, publicUser } = require('../utils/serializers');
 const { ERROR_CODES } = require('../utils/apiResponse');
-const { normalizeRegisterRole, MAX_OTP_ATTEMPTS } = require('../utils/authHelpers');
+const {
+  normalizeRegisterRole,
+  normalizePhone,
+  resolveContact,
+  MAX_OTP_ATTEMPTS
+} = require('../utils/authHelpers');
 const {
   issueTokenPair,
   rotateRefreshToken,
@@ -13,85 +16,63 @@ const {
 } = require('../services/refreshTokenService');
 const { writeAudit } = require('../utils/audit');
 
-const DEV_OTP = process.env.DEV_OTP || '5852';
+/** No SMS/email delivery: every OTP (email and phone) is this fixed code. */
+const STATIC_OTP = String(process.env.STATIC_OTP || '1234');
 const OTP_TTL_MS = 30 * 60 * 1000; // 30 minutes
+const OTP_CHANNEL_COLUMNS = { email: 'email', phone: 'phone' };
 
-/** Static/dev OTP only when explicitly allowed and never in production. */
-const allowStaticOtp = () =>
-  process.env.ALLOW_STATIC_OTP === 'true' &&
-  process.env.NODE_ENV !== 'production';
+const findUserByContact = (contact) =>
+  contact.channel === 'phone' ? findByPhone(contact.value) : findByEmail(contact.value);
 
-const sendEmailOTP = async (email, otp) => {
-  try {
-    const mailOptions = {
-      from: process.env.SMTP_USER,
-      to: email,
-      subject: 'CareMate - Email Verification OTP',
-      html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-          <h2 style="color: #333;">Email Verification</h2>
-          <p>Your verification code is:</p>
-          <div style="background-color: #f0f0f0; padding: 15px; text-align: center; font-size: 24px; font-weight: bold; letter-spacing: 5px; margin: 20px 0;">
-            ${otp}
-          </div>
-          <p>This code will expire in 30 minutes.</p>
-          <p style="color: #666; font-size: 12px;">If you didn't request this code, please ignore this email.</p>
-        </div>
-      `
-    };
-    await transporter.sendMail(mailOptions);
-    return true;
-  } catch (error) {
-    console.error('Email sending error:', error);
-    return false;
-  }
-};
-
-const generateOTP = () => {
-  if (allowStaticOtp()) return String(DEV_OTP);
-  return String(crypto.randomInt(100000, 1000000));
-};
-
-const otpFailureMessage = () =>
-  allowStaticOtp()
-    ? `OTP saved. Email delivery failed — use OTP ${DEV_OTP} to verify.`
-    : 'OTP saved. Email delivery failed — please try again or contact support.';
-
-const saveRegistrationOTP = async (email, type = 'registration') => {
-  const otp = generateOTP();
+const saveOTP = async (contact, type = 'registration') => {
+  const column = OTP_CHANNEL_COLUMNS[contact.channel];
   const expiresAt = new Date(Date.now() + OTP_TTL_MS);
   try {
     await pool.query(
-      `INSERT INTO otp_verifications (email, otp, type, expires_at, attempt_count)
+      `INSERT INTO otp_verifications (${column}, otp, type, expires_at, attempt_count)
        VALUES ($1, $2, $3, $4, 0)`,
-      [email, otp, type, expiresAt]
+      [contact.value, STATIC_OTP, type, expiresAt]
     );
   } catch (err) {
     // Pre-migration DBs without attempt_count
     if (err.code === '42703') {
       await pool.query(
-        `INSERT INTO otp_verifications (email, otp, type, expires_at)
+        `INSERT INTO otp_verifications (${column}, otp, type, expires_at)
          VALUES ($1, $2, $3, $4)`,
-        [email, otp, type, expiresAt]
+        [contact.value, STATIC_OTP, type, expiresAt]
       );
     } else {
       throw err;
     }
   }
-  return { otp, expiresAt };
+  return { expiresAt };
 };
 
-const recordFailedOtpAttempt = async (email) => {
+const isOtpLocked = async (contact) => {
+  const column = OTP_CHANNEL_COLUMNS[contact.channel];
+  const locked = await pool.query(
+    `
+    SELECT 1 FROM otp_verifications
+    WHERE ${column} = $1 AND type = 'registration' AND locked_at IS NOT NULL
+      AND created_at > NOW() - INTERVAL '30 minutes'
+    LIMIT 1
+    `,
+    [contact.value]
+  );
+  return locked.rowCount > 0;
+};
+
+const recordFailedOtpAttempt = async (contact) => {
+  const column = OTP_CHANNEL_COLUMNS[contact.channel];
   const latest = await pool.query(
     `
     SELECT id, attempt_count
     FROM otp_verifications
-    WHERE email = $1 AND type = 'registration' AND is_used = false AND expires_at > NOW()
-      AND locked_at IS NULL
+    WHERE ${column} = $1 AND type = 'registration' AND is_used = false AND locked_at IS NULL
     ORDER BY created_at DESC
     LIMIT 1
     `,
-    [email]
+    [contact.value]
   );
   if (!latest.rows[0]) return { locked: false };
 
@@ -115,44 +96,35 @@ const recordFailedOtpAttempt = async (email) => {
   return { locked: false, attempts: nextCount };
 };
 
-const findActiveOtpRow = async (email, submittedOtp, { allowExpiredStatic = false } = {}) => {
-  if (allowExpiredStatic) {
-    return pool.query(
-      `
-      SELECT * FROM otp_verifications
-      WHERE email = $1 AND type = 'registration' AND is_used = false
-        AND otp = $2 AND locked_at IS NULL
-      ORDER BY created_at DESC LIMIT 1
-      `,
-      [email, submittedOtp]
-    );
-  }
-
-  return pool.query(
-    `
-    SELECT * FROM otp_verifications
-    WHERE email = $1 AND otp = $2 AND type = 'registration'
-      AND is_used = false AND expires_at > NOW() AND locked_at IS NULL
-    ORDER BY created_at DESC LIMIT 1
-    `,
-    [email, submittedOtp]
+const markOtpsUsed = async (contact) => {
+  const column = OTP_CHANNEL_COLUMNS[contact.channel];
+  await pool.query(
+    `UPDATE otp_verifications SET is_used = true
+     WHERE ${column} = $1 AND type = 'registration' AND is_used = false`,
+    [contact.value]
   );
 };
 
+const tooManyOtpAttempts = (res) =>
+  res.error(
+    'Too many invalid OTP attempts. Request a new OTP.',
+    [],
+    429,
+    ERROR_CODES.TOO_MANY_REQUESTS
+  );
+
 exports.sendOTP = async (req, res) => {
   try {
-    const { email, type } = req.body;
-
-    if (!email) {
-      return res.error('Email is required');
+    const contact = resolveContact(req.body);
+    if (!contact.ok) {
+      return res.error(contact.message);
     }
 
-    const { otp, expiresAt } = await saveRegistrationOTP(email, type || 'registration');
-    const emailSent = await sendEmailOTP(email, otp);
+    const { expiresAt } = await saveOTP(contact, req.body.type || 'registration');
 
     return res.success(
-      { expiresAt, email_sent: emailSent },
-      emailSent ? 'OTP sent successfully' : otpFailureMessage()
+      { expiresAt, otp_channel: contact.channel, [contact.channel]: contact.value },
+      'OTP sent successfully'
     );
   } catch (error) {
     console.error('Send OTP error:', error);
@@ -162,64 +134,44 @@ exports.sendOTP = async (req, res) => {
 
 exports.verifyOTP = async (req, res) => {
   try {
-    const { email, otp } = req.body;
-
-    if (!email || !otp) {
-      return res.error('Email and OTP are required');
+    const contact = resolveContact(req.body);
+    if (!contact.ok) {
+      return res.error(contact.message);
+    }
+    if (!req.body.otp) {
+      return res.error('OTP is required');
     }
 
-    const submittedOtp = String(otp).trim();
-    const isStaticOtp = allowStaticOtp() && submittedOtp === String(DEV_OTP);
-
-    const locked = await pool.query(
-      `
-      SELECT 1 FROM otp_verifications
-      WHERE email = $1 AND type = 'registration' AND locked_at IS NOT NULL
-        AND created_at > NOW() - INTERVAL '30 minutes'
-      LIMIT 1
-      `,
-      [email]
-    );
-    if (locked.rowCount > 0) {
-      return res.error(
-        'Too many invalid OTP attempts. Request a new OTP.',
-        [],
-        429,
-        ERROR_CODES.TOO_MANY_REQUESTS
-      );
+    const user = await findUserByContact(contact);
+    if (!user) {
+      return res.notFound('User not found');
+    }
+    // Static OTP must never act as a password for an already verified account.
+    if (user.is_verified) {
+      return res.conflict('Account is already verified. Please log in.');
     }
 
-    const result = await findActiveOtpRow(email, isStaticOtp ? String(DEV_OTP) : submittedOtp, {
-      allowExpiredStatic: isStaticOtp
-    });
+    if (await isOtpLocked(contact)) {
+      return tooManyOtpAttempts(res);
+    }
 
-    if (result.rows.length === 0) {
-      const attempt = await recordFailedOtpAttempt(email);
+    if (String(req.body.otp).trim() !== STATIC_OTP) {
+      const attempt = await recordFailedOtpAttempt(contact);
       if (attempt.locked) {
         await writeAudit({
           action: 'OTP_LOCKED',
           entityType: 'otp',
-          meta: { email, attempts: attempt.attempts }
+          meta: { [contact.channel]: contact.value, attempts: attempt.attempts }
         });
-        return res.error(
-          'Too many invalid OTP attempts. Request a new OTP.',
-          [],
-          429,
-          ERROR_CODES.TOO_MANY_REQUESTS
-        );
+        return tooManyOtpAttempts(res);
       }
-      return res.error('Invalid or expired OTP', [], 400, ERROR_CODES.OTP_INVALID);
+      return res.error('Invalid OTP', [], 400, ERROR_CODES.OTP_INVALID);
     }
 
-    await pool.query(
-      `UPDATE otp_verifications SET is_used = true WHERE id = $1`,
-      [result.rows[0].id]
-    );
+    await markOtpsUsed(contact);
 
-    const user = await findByEmail(email);
-
-    if (!user) {
-      return res.notFound('User not found');
+    if (user.status && user.status !== 'active') {
+      return res.forbidden('Account is not active');
     }
 
     const verifiedUser = await setVerified(user.id);
@@ -238,47 +190,62 @@ exports.verifyOTP = async (req, res) => {
 
 exports.register = async (req, res) => {
   try {
-    const { name, email, password, role } = req.body;
+    const { name, password, role } = req.body;
+    const email = req.body.email != null ? String(req.body.email).trim() : '';
+    const rawPhone = req.body.phone != null ? String(req.body.phone).trim() : '';
 
-    if (!name || !email || !password) {
-      return res.error('Name, email, and password are required');
+    if (!name || !password || (!email && !rawPhone)) {
+      return res.error('Name, password, and email or phone are required');
+    }
+
+    const phone = rawPhone ? normalizePhone(rawPhone) : null;
+    if (rawPhone && !phone) {
+      return res.error(
+        'Invalid phone number. Use a Bangladeshi mobile number like 01712345678.',
+        [],
+        400,
+        ERROR_CODES.VALIDATION_ERROR
+      );
     }
 
     const roleResult = normalizeRegisterRole(role);
     if (!roleResult.ok) {
-      return res.error(roleResult.message, [], 400, ERROR_CODES.VALIDATION_ERROR || 'VALIDATION_ERROR');
+      return res.error(roleResult.message, [], 400, ERROR_CODES.VALIDATION_ERROR);
     }
 
-    const existingUser = await findByEmail(email);
-    if (existingUser) {
+    if (email && await findByEmail(email)) {
       return res.conflict('User with this email already exists');
+    }
+    if (phone && await findByPhone(phone)) {
+      return res.conflict('User with this phone number already exists');
     }
 
     const user = await createUser({
       name,
-      email,
+      email: email || null,
+      phone,
       password,
       role: roleResult.role
     });
 
-    const { otp, expiresAt } = await saveRegistrationOTP(email, 'registration');
-    const emailSent = await sendEmailOTP(email, otp);
+    const contact = email
+      ? { channel: 'email', value: email }
+      : { channel: 'phone', value: phone };
+    const { expiresAt } = await saveOTP(contact, 'registration');
 
-    const userPayload = authUser(user);
-    const message = emailSent
-      ? (roleResult.role === 'CAREGIVER'
-        ? 'Caregiver registration successful. Please verify your email with the OTP sent to your email address.'
-        : 'Registration successful. Please verify your email with the OTP sent to your email address.')
-      : (allowStaticOtp()
-        ? `Registration successful. Email delivery failed — use OTP ${DEV_OTP} to verify.`
-        : 'Registration successful. Email delivery failed — please try again or contact support.');
+    const message = roleResult.role === 'CAREGIVER'
+      ? 'Caregiver registration successful. Please verify your account with the OTP.'
+      : 'Registration successful. Please verify your account with the OTP.';
 
     return res.created({
-      user: userPayload,
+      user: authUser(user),
       expiresAt,
-      email_sent: emailSent
+      otp_channel: contact.channel
     }, message);
   } catch (error) {
+    if (error.code === '23505') {
+      return res.conflict('User with this email or phone number already exists');
+    }
     console.error('Registration error:', error);
     res.serverError('Registration failed');
   }
@@ -286,28 +253,28 @@ exports.register = async (req, res) => {
 
 exports.login = async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const contact = resolveContact(req.body);
+    const { password } = req.body;
 
-    if (!email || !password) {
-      return res.error('Email and password are required');
+    if (!contact.ok) {
+      return res.error(contact.message);
+    }
+    if (!password) {
+      return res.error('Password is required');
     }
 
-    const user = await findByEmail(email);
-    if (!user) {
+    const user = await findUserByContact(contact);
+    if (!user || !user.password) {
       return res.unauthorized('Invalid credentials');
-    }
-
-    if (!user.is_verified) {
-      return res.forbidden('Please verify your email first');
-    }
-
-    if (!user.password) {
-      return res.error('Please use OTP login');
     }
 
     const isPasswordValid = await verifyPassword(password, user.password);
     if (!isPasswordValid) {
       return res.unauthorized('Invalid credentials');
+    }
+
+    if (!user.is_verified) {
+      return res.forbidden('Please verify your account first', ERROR_CODES.ACCOUNT_NOT_VERIFIED);
     }
 
     if (user.status !== 'active') {
@@ -326,6 +293,7 @@ exports.login = async (req, res) => {
     res.serverError('Login failed');
   }
 };
+
 
 exports.refreshToken = async (req, res) => {
   try {
@@ -483,18 +451,18 @@ exports.uploadProfilePhoto = async (req, res) => {
 
 exports.resendOTP = async (req, res) => {
   try {
-    const { email } = req.body;
-
-    if (!email) {
-      return res.error('Email is required');
+    const contact = resolveContact(req.body);
+    if (!contact.ok) {
+      return res.error(contact.message);
     }
 
+    const column = OTP_CHANNEL_COLUMNS[contact.channel];
     const lastOTP = await pool.query(
-      `SELECT * FROM otp_verifications 
-       WHERE email = $1 AND type = 'registration'
+      `SELECT created_at FROM otp_verifications
+       WHERE ${column} = $1 AND type = 'registration'
        AND is_used = false AND expires_at > NOW()
        ORDER BY created_at DESC LIMIT 1`,
-      [email]
+      [contact.value]
     );
 
     if (lastOTP.rows.length > 0) {
@@ -508,12 +476,11 @@ exports.resendOTP = async (req, res) => {
       }
     }
 
-    const { otp, expiresAt } = await saveRegistrationOTP(email, 'registration');
-    const emailSent = await sendEmailOTP(email, otp);
+    const { expiresAt } = await saveOTP(contact, 'registration');
 
     return res.success(
-      { expiresAt, email_sent: emailSent },
-      emailSent ? 'OTP resent successfully' : otpFailureMessage()
+      { expiresAt, otp_channel: contact.channel, [contact.channel]: contact.value },
+      'OTP resent successfully'
     );
   } catch (error) {
     console.error('Resend OTP error:', error);

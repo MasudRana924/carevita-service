@@ -3,7 +3,8 @@
  * /auth/send-otp:
  *   post:
  *     tags: [Auth]
- *     summary: Send OTP to email
+ *     summary: Issue an OTP for an email or phone
+ *     description: No email/SMS is sent. The OTP is always the static code (default 1234).
  *     security: []
  *     requestBody:
  *       required: true
@@ -11,20 +12,22 @@
  *         application/json:
  *           schema:
  *             type: object
- *             required: [email]
+ *             description: Send `email` or `phone` (email wins if both are sent)
  *             properties:
  *               email: { type: string, format: email, example: user@example.com }
- *               type: { type: string, example: login, description: Optional OTP purpose }
+ *               phone: { type: string, example: "01712345678", description: Bangladeshi mobile; +880/880 prefixes accepted }
+ *               type: { type: string, example: registration, description: Optional OTP purpose }
  *     responses:
  *       200:
- *         description: OTP sent
+ *         description: OTP issued
  *       400:
- *         description: Email required
+ *         description: Email or phone required / invalid phone
  *
  * /auth/verify-otp:
  *   post:
  *     tags: [Auth]
- *     summary: Verify OTP and get tokens
+ *     summary: Verify a new account with the OTP and get tokens
+ *     description: Only for accounts that are not verified yet. The OTP is the static code (default 1234).
  *     security: []
  *     requestBody:
  *       required: true
@@ -32,20 +35,27 @@
  *         application/json:
  *           schema:
  *             type: object
- *             required: [email, otp]
+ *             required: [otp]
  *             properties:
  *               email: { type: string, format: email }
- *               otp: { type: string, example: "123456" }
+ *               phone: { type: string, example: "01712345678" }
+ *               otp: { type: string, example: "1234" }
  *     responses:
  *       200:
- *         description: OTP verified — returns accessToken, refreshToken, user
+ *         description: OTP verified — returns token, refreshToken, user
  *       400:
- *         description: Invalid or expired OTP
+ *         description: Invalid OTP (code OTP_INVALID)
+ *       404:
+ *         description: User not found
+ *       409:
+ *         description: Account already verified — log in instead
+ *       429:
+ *         description: Too many invalid attempts
  *
  * /auth/resend-otp:
  *   post:
  *     tags: [Auth]
- *     summary: Resend OTP
+ *     summary: Resend OTP (1 minute cooldown)
  *     security: []
  *     requestBody:
  *       required: true
@@ -53,9 +63,9 @@
  *         application/json:
  *           schema:
  *             type: object
- *             required: [email]
  *             properties:
  *               email: { type: string, format: email }
+ *               phone: { type: string, example: "01712345678" }
  *     responses:
  *       200:
  *         description: OTP resent
@@ -65,7 +75,8 @@
  * /auth/register:
  *   post:
  *     tags: [Auth]
- *     summary: Register new user
+ *     summary: Register new user with email or phone
+ *     description: Send `email` or `phone` (or both). The account must then be verified via /auth/verify-otp using the identifier in `otp_channel`.
  *     security: []
  *     requestBody:
  *       required: true
@@ -73,10 +84,11 @@
  *         application/json:
  *           schema:
  *             type: object
- *             required: [name, email, password]
+ *             required: [name, password]
  *             properties:
  *               name: { type: string, example: Rahim Ahmed }
  *               email: { type: string, format: email }
+ *               phone: { type: string, example: "01712345678" }
  *               password: { type: string, format: password, minLength: 6 }
  *               role: { type: string, enum: [USER, CAREGIVER], example: USER, description: Public register allows USER or CAREGIVER only (ADMIN rejected) }
  *     responses:
@@ -85,12 +97,12 @@
  *       400:
  *         description: Invalid role or validation error
  *       409:
- *         description: Email already exists
+ *         description: Email or phone already exists
  *
  * /auth/login:
  *   post:
  *     tags: [Auth]
- *     summary: Login with email and password
+ *     summary: Login with email or phone and password
  *     security: []
  *     requestBody:
  *       required: true
@@ -98,15 +110,18 @@
  *         application/json:
  *           schema:
  *             type: object
- *             required: [email, password]
+ *             required: [password]
  *             properties:
  *               email: { type: string, format: email }
+ *               phone: { type: string, example: "01712345678" }
  *               password: { type: string, format: password }
  *     responses:
  *       200:
  *         description: Login success — returns tokens and user
- *       400:
+ *       401:
  *         description: Invalid credentials
+ *       403:
+ *         description: Not verified (code ACCOUNT_NOT_VERIFIED) or account inactive
  *
  * /auth/refresh-token:
  *   post:

@@ -1,5 +1,7 @@
 const {
   normalizeRegisterRole,
+  normalizePhone,
+  resolveContact,
   hashToken,
   MAX_OTP_ATTEMPTS,
   PUBLIC_REGISTER_ROLES
@@ -33,5 +35,28 @@ describe('authHelpers', () => {
 
   test('OTP max attempts is at least 5', () => {
     expect(MAX_OTP_ATTEMPTS).toBeGreaterThanOrEqual(5);
+  });
+
+  test('normalizePhone canonicalises BD mobile numbers', () => {
+    expect(normalizePhone('01712345678')).toBe('01712345678');
+    expect(normalizePhone('+8801712345678')).toBe('01712345678');
+    expect(normalizePhone('8801712345678')).toBe('01712345678');
+    expect(normalizePhone('017-1234 5678')).toBe('01712345678');
+  });
+
+  test('normalizePhone rejects invalid numbers', () => {
+    expect(normalizePhone('0171234567')).toBeNull();
+    expect(normalizePhone('01212345678')).toBeNull();
+    expect(normalizePhone('abc')).toBeNull();
+    expect(normalizePhone(undefined)).toBeNull();
+  });
+
+  test('resolveContact prefers email, falls back to phone', () => {
+    expect(resolveContact({ email: ' a@b.com ', phone: '01712345678' }))
+      .toEqual({ ok: true, channel: 'email', value: 'a@b.com' });
+    expect(resolveContact({ phone: '+8801712345678' }))
+      .toEqual({ ok: true, channel: 'phone', value: '01712345678' });
+    expect(resolveContact({ phone: '123' }).ok).toBe(false);
+    expect(resolveContact({}).ok).toBe(false);
   });
 });
